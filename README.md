@@ -1,20 +1,19 @@
-# gphotos-backup-advanced (v2.2)
+# gphotos-backup-advanced (v2.3)
 
-**Tóm tắt fix:**
-- Loại bỏ `env_file` (lỗi .env not found).
-- Bỏ `container_name` (tránh conflict khi redeploy). 
-- Thêm `/health` + `HEALTHCHECK` để Portainer nhận trạng thái container.
-- Compose tối giản, build trực tiếp từ Git (PUBLIC).
+- Thêm `stack.env` ở ROOT để Portainer (Repository mode) không cảnh báo/đòi file.
+- Compose build trực tiếp từ Git PUBLIC (không cần Auth).
+- HEALTHCHECK `/health` giúp Portainer nhận trạng thái container.
 
-## Triển khai qua Portainer (Repository - PUBLIC)
-- Repository URL: `https://github.com/W00DFISH/gphotos-backup-advanced.git`
-- Branch: `main`
-- Compose path: `docker-compose.yml`
-- Auth: OFF (repo public)
-- Bảo đảm DSM có thư mục:
-  - `/volume1/docker/rclone/config`
-  - `/volume1/photo`
+Triển khai Portainer → Stacks → Repository:
+- Repository URL: https://github.com/W00DFISH/gphotos-backup-advanced.git
+- Repository reference: refs/heads/main
+- Compose path: docker-compose.yml
+- Authentication: OFF (repo public)
+
+Folder DSM phải tồn tại:
+- /volume1/docker/rclone/config
+- /volume1/photo
 
 Sau deploy:
-- UI: `http://NAS_IP:5572`
-- Rclone Web GUI: `http://NAS_IP:5573`
+- UI: http://NAS_IP:5572
+- Rclone Web GUI: http://NAS_IP:5573
