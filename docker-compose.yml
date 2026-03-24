@@ -1,0 +1,14 @@
+version: "3.9"
+services:
+  app:
+    build: .
+    container_name: gphotos-backup-advanced
+    ports:
+      - "5572:5572"
+      - "5573:5573"
+    volumes:
+      - /volume1/docker/rclone/config:/config
+      - /volume1/photo:/data
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+    restart: unless-stopped
