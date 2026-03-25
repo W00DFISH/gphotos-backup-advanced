@@ -9,7 +9,7 @@ services:
       - "5573:5573"
     volumes:
       - /volume1/docker/rclone/config:/config
-      - /volume1/photo:/data
+      - /volume3/photo:/data
     environment:
       - TZ=Asia/Ho_Chi_Minh
     restart: unless-stopped
