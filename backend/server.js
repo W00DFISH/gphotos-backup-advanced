@@ -2,7 +2,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 
 const app = express();
 app.use(express.json());
@@ -34,7 +34,7 @@ function deleteAccount(name){
 }
 function buildRcloneCmd(acc, mode='sync'){
   const yearFolder = acc.yearFolder ? (new Date().getFullYear().toString()) : '';
-  const baseDst = (acc.destPath || '/data/backups').replace(/\/g,'/');
+  const baseDst = (acc.destPath || '/data/backups').replace(/\\/g,'/');
   const dst = yearFolder ? path.posix.join(baseDst, yearFolder) : baseDst;
   const src = `${acc.remote}:media/all`;
   if(acc.cryptRemote && acc.cryptRemote.trim().length>0){
@@ -44,7 +44,20 @@ function buildRcloneCmd(acc, mode='sync'){
   }
   return `rclone ${mode} ${src} ${dst} --fast-list --create-empty-src-dirs --config=/config/rclone.conf --log-file=${path.posix.join(LOG_DIR, acc.name + '.log')} --use-json-log --stats=30s`;
 }
-function run(cmd){ return new Promise(r => exec(cmd, {maxBuffer:1024*1024*20}, (e,so,se)=> r({ok:!e, out: so+se}))); }
+function runBgJob(acc, mode='sync') {
+  if (!global.activeJobs) global.activeJobs = {};
+  if (global.activeJobs[acc.name]) return { ok: false, msg: 'Tiến trình cũ đang chạy, bỏ qua.' };
+  
+  const cmd = buildRcloneCmd(acc, mode);
+  global.activeJobs[acc.name] = true;
+  
+  const child = spawn(cmd, { shell: true, stdio: 'ignore' });
+  
+  child.on('exit', () => { delete global.activeJobs[acc.name]; });
+  child.on('error', () => { delete global.activeJobs[acc.name]; });
+  
+  return { ok: true, msg: 'Đã tạo tiến trình ngầm' };
+}
 
 // Healthcheck
 app.get('/health', (req,res)=> res.json({ok:true}));
@@ -64,14 +77,13 @@ app.delete('/api/accounts/:name', (req,res)=>{
   const data = deleteAccount(req.params.name);
   res.json({ ok:true, accounts: data.accounts });
 });
-app.post('/api/sync', async (req,res)=>{
+app.post('/api/sync', (req,res)=>{
   const { account, mode } = req.body || {};
   const cfg = listAccounts();
   const acc = cfg.accounts.find(a => a.name === account);
   if(!acc) return res.status(404).json({ ok:false, msg:'Không tìm thấy account' });
-  const cmd = buildRcloneCmd(acc, mode==='copy'?'copy':'sync');
-  const result = await run(cmd);
-  res.json({ ok: result.ok, cmd, log: result.out });
+  const result = runBgJob(acc, mode==='copy'?'copy':'sync');
+  res.json({ ok: result.ok, msg: result.msg });
 });
 app.get('/api/logs', (req,res)=>{
   const { account } = req.query;
@@ -105,13 +117,13 @@ function scheduleLoop(){
     const when = `${hh}:${mm}`;
     if(ent.type==='daily'){
       if(ent.time===when && !global.__lastRun.has(acc.name+'@'+key)){
-        exec(buildRcloneCmd(acc, ent.mode==='copy'?'copy':'sync'));
+        runBgJob(acc, ent.mode==='copy'?'copy':'sync');
         global.__lastRun.add(acc.name+'@'+key);
       }
     } else if(ent.type==='weekly'){
       const dw = now.getDay();
       if(Array.isArray(ent.days) && ent.days.includes(dw) && ent.time===when && !global.__lastRun.has(acc.name+'@'+key)){
-        exec(buildRcloneCmd(acc, ent.mode==='copy'?'copy':'sync'));
+        runBgJob(acc, ent.mode==='copy'?'copy':'sync');
         global.__lastRun.add(acc.name+'@'+key);
       }
     }
