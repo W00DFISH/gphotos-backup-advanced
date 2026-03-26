@@ -4,7 +4,22 @@
  */
 async function reqJSON(url, opts){ const r = await fetch(url, opts); if(!r.ok) throw new Error(await r.text()); return r.json(); }
 async function init(){ try{ const j = await reqJSON('/api/rclone-url'); document.getElementById('rcloneLink').href = j.url; }catch(e){} tab('accounts'); }
-async function tab(name){ const v = document.getElementById('view'); if(name==='accounts'){ const cfg = await reqJSON('/api/config'); v.innerHTML = `
+async function tab(name){ const v = document.getElementById('view'); 
+  if(name==='accounts'){ 
+    const cfg = await reqJSON('/api/config'); 
+    let remotesHTML = '<option value="">-- Đang tải danh sách Remote... --</option>';
+    reqJSON('/api/rclone-remotes').then(r => {
+      if(r.ok && r.remotes.length>0) {
+        remotesHTML = '<option value="">-- Chạm để chọn cấu hình Rclone --</option>' + r.remotes.map(x=>`<option value="${x}">${x}</option>`).join('');
+        const sel = document.getElementById('acc_remote');
+        if(sel) sel.innerHTML = remotesHTML;
+      } else {
+        const sel = document.getElementById('acc_remote');
+        if(sel) sel.innerHTML = '<option value="">Chưa có Rclone Remote nào. Bạn hãy lấy Auth và ném vào rclone.conf trước!</option>';
+      }
+    }).catch(e=>{});
+    
+    v.innerHTML = `
 <section>
   <h2>Cấu hình chung (Global NAS Protection)</h2>
   <div class="small">Nếu dung lượng trống trên NAS rớt xuống dưới mốc này, toàn bộ tiến trình rclone sẽ chặn khởi chạy hoặc tự động ép ngưng.</div>
@@ -20,9 +35,11 @@ async function tab(name){ const v = document.getElementById('view'); if(name==='
       <label>Tên account</label>
       <input id="acc_name" placeholder="vd: family" />
       <label>Rclone Remote (Google Photos)</label>
-      <input id="acc_remote" placeholder="vd: gphotos_family" />
+      <select id="acc_remote" onchange="document.getElementById('acc_dest').value = this.value ? '/data/' + this.value : ''">
+        <option value="">-- Xin chờ tải danh sách... --</option>
+      </select>
       <label>Thư mục đích trên DSM (bên trong /data)</label>
-      <input id="acc_dest" placeholder="vd: /data/backups/family" />
+      <input id="acc_dest" placeholder="vd: /data/family" />
       <label>Hạn mức Quota cho thư mục này (GB) - Nhập 0 để Unlimit</label>
       <input id="acc_quota" placeholder="vd: 50" type="number" step="1" value="0"/>
       <label><input type="checkbox" id="acc_year" /> Tạo thư mục theo năm (…/YYYY)</label>
@@ -38,11 +55,34 @@ async function tab(name){ const v = document.getElementById('view'); if(name==='
     </div>
     <div class="w50">
       <h3>Danh sách</h3>
-      <table class="table"><thead><tr><th>Account</th><th>Remote</th><th>Dest</th><th>Quota</th><th>Hành động</th></tr></thead>
+      <table class="table"><thead><tr><th>Account</th><th>Remote</th><th>Dest</th><th>Quota</th><th>Size Mây</th><th>Hành động</th></tr></thead>
       <tbody id="acc_rows"></tbody></table>
+      <div id="quota_warning" style="margin-top:15px; font-size:13px; color:#555;"></div>
     </div>
   </div>
-</section>`; document.getElementById('acc_rows').innerHTML = (cfg.accounts||[]).map(a=>`<tr><td>${a.name}</td><td>${a.remote}</td><td class="mono">${a.destPath}</td><td>${a.maxQuotaGB?a.maxQuotaGB+'GB':'∞'}</td><td><button onclick="estimateRemoteSize('${a.name}')">Size Mây</button><button onclick="delAccount('${a.name}')">Xoá</button></td></tr>`).join(''); }
+</section>`; 
+window._lastCfg = cfg;
+const sumQuota = (cfg.accounts||[]).reduce((sum, a) => sum + (parseFloat(a.maxQuotaGB)||0), 0);
+const sumUsed = (cfg.accounts||[]).reduce((sum, a) => sum + (parseFloat(a.lastSizeGB)||0), 0);
+
+document.getElementById('acc_rows').innerHTML = (cfg.accounts||[]).map(a=>`<tr>
+  <td>${a.name}</td>
+  <td>${a.remote}</td>
+  <td class="mono">${a.destPath}</td>
+  <td>${a.maxQuotaGB?a.maxQuotaGB+'GB':'∞'}</td>
+  <td>${a.lastSizeGB!==undefined ? a.lastSizeGB+' GB' : 'Chưa quét'}</td>
+  <td>
+    <button onclick="editAccount('${a.name}')">Sửa</button>
+    <button onclick="estimateRemoteSize('${a.name}', event)">Check GB</button>
+    <button onclick="delAccount('${a.name}')">Xoá</button>
+  </td>
+</tr>`).join('');
+
+const warnDiv = document.getElementById('quota_warning');
+if(warnDiv) {
+  warnDiv.innerHTML = `<br><b>Thống kê:</b> Tổng Hạn mức đã cấp: ${sumQuota||0} GB | Tổng mây đã quét: ${sumUsed.toFixed(2)} GB.<br><span style="color:red">${sumQuota > 0 ? '(Lưu ý: Tổng hạn mức nên nhỏ hơn dung lượng trống của NAS)' : ''}</span>`;
+}
+}
   if(name==='sync'){ const cfg = await reqJSON('/api/config'); v.innerHTML = `
 <section>
   <h2>Sync</h2>
@@ -83,7 +123,33 @@ async function tab(name){ const v = document.getElementById('view'); if(name==='
 async function saveGlobalConfig() { const gb = global_min_gb.value; await reqJSON('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({globalMinGB:gb})}); alert('Đã lưu cấu hình chung!'); }
 async function saveAccount(){ const body = { name: acc_name.value.trim(), remote: acc_remote.value.trim(), destPath: acc_dest.value.trim(), yearFolder: acc_year.checked, maxQuotaGB: acc_quota.value||0, cryptRemote: acc_crypt_remote.value.trim(), cryptPath: acc_crypt_path.value.trim() }; if(!body.name||!body.remote||!body.destPath){ alert('Thiếu tên/remote/thư mục đích'); return; } await reqJSON('/api/accounts',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)}); tab('accounts'); }
 async function delAccount(n){ if(!confirm('Xoá account '+n+'?')) return; await reqJSON('/api/accounts/'+encodeURIComponent(n), { method:'DELETE' }); tab('accounts'); }
-async function estimateRemoteSize(name) { alert('Đang gửi lệnh rclone kiểm tra trên cloud... quá trình này có thể mất từ 1-5 phút tuỳ thuộc số lượng ảnh. Vui lòng chờ thông báo mơi!'); try { const res = await reqJSON('/api/remote-size?account='+encodeURIComponent(name)); alert('Tài khoản: ' + name + '\nDung lượng đang dùng: ' + res.sizeGB + ' GB\nTổng số file (ảnh/video): ' + res.count); } catch(e) { alert('LỖI: ' + e.message); } }
+async function estimateRemoteSize(name, event) { 
+  const btn = event ? event.target : null;
+  if(btn) { btn.innerText = 'Đang quét...'; btn.disabled = true; }
+  try { 
+    await reqJSON('/api/remote-size?account='+encodeURIComponent(name)); 
+    tab('accounts'); 
+  } catch(e) { 
+    alert('LỖI: ' + e.message); 
+    if(btn) { btn.innerText = 'Check GB'; btn.disabled = false; }
+  } 
+}
+function editAccount(n) {
+  const cfg = window._lastCfg;
+  if(!cfg) return;
+  const a = cfg.accounts.find(x => x.name === n);
+  if(!a) return;
+  document.getElementById('acc_name').value = a.name;
+  const sel = document.getElementById('acc_remote');
+  if(![...sel.options].find(o=>o.value===a.remote)) { sel.innerHTML += `<option value="${a.remote}">${a.remote} (Cũ)</option>`; }
+  sel.value = a.remote;
+  document.getElementById('acc_dest').value = a.destPath;
+  document.getElementById('acc_quota').value = a.maxQuotaGB || 0;
+  document.getElementById('acc_year').checked = !!a.yearFolder;
+  document.getElementById('acc_crypt_remote').value = a.cryptRemote || '';
+  document.getElementById('acc_crypt_path').value = a.cryptPath || '';
+  document.getElementById('acc_name').focus();
+}
 async function runSync(){ const account = sync_acc.value; const mode = sync_mode.value; const j = await reqJSON('/api/sync',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({account, mode})}); document.getElementById('sync_out').textContent = j.ok? ('Trạng thái: ' + j.msg + '\n\nTiến trình Rclone đã bắt đầu chạy ngầm trong background (thành công).\nBạn hãy chuyển sang tab [Logs] để xem chi tiết tiến độ đồng bộ của Rclone.') : ('LỖI:\n'+j.msg); }
 async function loadLog(){ const acc = log_acc.value; const r = await fetch('/api/logs?account='+encodeURIComponent(acc)); document.getElementById('log_out').textContent = await r.text(); }
 function renderSchedule(){ const el = document.getElementById('sched_rows'); const accounts = window.__accounts || []; const entries = (window.__sched && window.__sched.entries) || []; el.innerHTML = entries.map((e,idx)=> `

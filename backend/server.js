@@ -91,7 +91,17 @@ app.get('/health', (req,res)=> res.json({ok:true}));
 
 // API
 app.get('/api/config', (req,res)=>{
-  res.json({ accounts: listAccounts().accounts, schedule: ensureFile(SCHEDULE_FILE, { entries: [] }) });
+  const cfg = listAccounts();
+  res.json({ accounts: cfg.accounts, globalMinGB: cfg.globalMinGB, schedule: ensureFile(SCHEDULE_FILE, { entries: [] }) });
+});
+app.get('/api/rclone-remotes', async (req,res)=>{
+  try {
+    const { stdout } = await execPromise('rclone listremotes --config=/config/rclone.conf');
+    const remotes = stdout.split('\n').map(r=>r.trim()).filter(r=>r.endsWith(':')).map(r=>r.slice(0,-1));
+    res.json({ ok:true, remotes });
+  } catch(e) {
+    res.json({ ok:false, remotes: [] });
+  }
 });
 app.post('/api/accounts', (req,res)=>{
   const { name, remote, destPath, yearFolder, cryptRemote, cryptPath, maxQuotaGB } = req.body || {};
@@ -139,14 +149,19 @@ app.post('/api/settings', (req, res) => {
 app.get('/api/remote-size', async (req,res) => {
    const { account } = req.query;
    const cfg = listAccounts();
-   const acc = cfg.accounts.find(a => a.name === account);
-   if (!acc) return res.status(404).json({ ok:false, msg:'Không tìm thấy account' });
+   const accIndex = cfg.accounts.findIndex(a => a.name === account);
+   if (accIndex < 0) return res.status(404).json({ ok:false, msg:'Không tìm thấy account' });
    try {
-      const src = `${acc.remote}:media/all`;
+      const src = `${cfg.accounts[accIndex].remote}:media/all`;
       const { stdout } = await execPromise(`rclone size ${src} --config=/config/rclone.conf --json`);
       const data = JSON.parse(stdout);
-      const gb = data.bytes / (1024*1024*1024);
-      res.json({ ok: true, sizeGB: gb.toFixed(2), count: data.count });
+      const gb = (data.bytes / (1024*1024*1024)).toFixed(2);
+      
+      cfg.accounts[accIndex].lastSizeGB = gb;
+      cfg.accounts[accIndex].lastFileCount = data.count;
+      saveJSON(ACCOUNTS_FILE, cfg);
+      
+      res.json({ ok: true, sizeGB: gb, count: data.count });
    } catch(e) {
       res.status(500).json({ ok: false, msg: e.message });
    }
