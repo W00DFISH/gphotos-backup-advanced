@@ -218,16 +218,19 @@ function startTerminalPolling() {
         .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" style="color:#60a5fa;text-decoration:underline">$1</a>');
       term.scrollTop = term.scrollHeight;
       
-      // Tư\u0323 \u0111\u00f4\u0323ng parse Token b\u1eb1ng JSON.parse thay v\u00ec regex \u0111\u1ec3 support m\u1ecdi format l\u1ed9n x\u1ed9n c\u1ee7a rclone
+      // Tư\u0323 \u0111\u00f4\u0323ng parse Token b\u1eb1ng Marker \u0111\u1ec3 ch\u1ed1t ch\u1eb7n 100% token c\u1ee7a rclone, k\u1ec3 c\u1ea3 c\u00f3 xu\u1ed1ng d\u00f2ng hay n\u1ed9i dung d\u01b0 th\u1eeba!
       let tokenMatch = null;
-      let firstBrace = j.output.indexOf('{');
-      let lastBrace = j.output.lastIndexOf('}');
-      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-          try { 
-             const tokenStr = j.output.substring(firstBrace, lastBrace + 1);
-             const p = JSON.parse(tokenStr); 
-             if (p && p.access_token) { tokenMatch = JSON.stringify(p); } 
+      let pasteMatch = j.output.match(/--->\\s*(\\{.*?\\})\\s*<---/s);
+      if (pasteMatch && pasteMatch[1]) {
+          try {
+             const p = JSON.parse(pasteMatch[1].trim());
+             if (p && p.access_token) { tokenMatch = JSON.stringify(p); }
           } catch(e) {}
+      } else {
+          // D\u1ef1 ph\u00f2ng khi kh\u00f4ng c\u00f3 marker: t\u00ecm Json ph\u1eb3ng
+          for (const t of j.output.match(/\\{[^}]+\\}/g) || []) {
+             try { const p = JSON.parse(t); if (p && p.access_token) { tokenMatch = JSON.stringify(p); break; } } catch(e) {}
+          }
       }
 
       if (tokenMatch) {

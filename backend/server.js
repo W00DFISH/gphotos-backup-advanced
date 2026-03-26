@@ -209,7 +209,13 @@ app.get('/api/restore', (req,res)=>{
 app.get('/api/rclone-url', (req,res)=> res.json({ url: `${req.protocol}://${req.hostname}:5573` }));
 app.get('/api/version', (req,res) => {
   let v = "v2.8 - " + new Date().toISOString().slice(0, 10);
-  try { v = require('child_process').execSync('git log -1 --format="%cd - %s (%h)" --date=short').toString().trim(); } catch(e){}
+  try {
+    if (fs.existsSync('/app/version.txt')) {
+      v = fs.readFileSync('/app/version.txt', 'utf8').trim() || v;
+    } else {
+      v = require('child_process').execSync('git log -1 --format="%cd - %s (%h)" --date=short').toString().trim(); 
+    }
+  } catch(e){}
   res.json({ version: v });
 });
 app.post('/api/schedule', (req,res)=>{ const body = req.body || { entries: [] }; saveJSON(SCHEDULE_FILE, body); res.json({ ok:true }); });
