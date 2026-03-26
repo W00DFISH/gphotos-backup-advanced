@@ -244,15 +244,42 @@ app.post('/api/rclone-auth-reset', (req, res) => {
   res.json({ ok: true });
 });
 
-// [Legacy] Vẫn giữ lại để tương thích nếu cần paste token thủ công
-app.post('/api/rclone-token-import', async (req, res) => {
+// Ghi remote v\u00e0o rclone.conf tr\u1ef1c ti\u1ebfp (kh\u00f4ng d\u00f9ng CLI \u2192 tr\u00e1nh shell escaping)
+function writeRcloneRemoteToConf(remoteName, tokenStr, readOnly) {
+  const confPath = '/config/rclone.conf';
+  const tokenObj = JSON.parse(tokenStr); // validate JSON
+  const tokenLine = JSON.stringify(tokenObj); // normalize
+
+  let conf = '';
+  if (fs.existsSync(confPath)) {
+    conf = fs.readFileSync(confPath, 'utf8');
+    // X\u00f3a section c\u0169 n\u1ebfu t\u1ed3n t\u1ea1i
+    const lines = conf.split('\\n');
+    const out = [];
+    let skip = false;
+    for (const line of lines) {
+      if (line.trim() === `[${remoteName}]`) { skip = true; continue; }
+      if (skip && line.trim().startsWith('[')) skip = false;
+      if (!skip) out.push(line);
+    }
+    conf = out.join('\\n').trimEnd();
+  }
+
+  // Append section m\u1edbi
+  const section = `\\n\\n[${remoteName}]\\ntype = google photos\\ntoken = ${tokenLine}\\nread_only = ${readOnly ? 'true' : 'false'}\\n`;
+  fs.writeFileSync(confPath, conf + section, 'utf8');
+}
+
+app.post('/api/rclone-token-import', (req, res) => {
   const { remoteName, token, readOnly } = req.body || {};
-  if (!remoteName || !token) return res.status(400).json({ ok: false, msg: 'Thiếu remoteName hoặc token' });
+  if (!remoteName || !token) return res.status(400).json({ ok: false, msg: 'Thi\u1ebfu remoteName ho\u1eb7c token' });
+  
+  // Kill rclone auth process c\u0169 (gi\u1ea3i ph\u00f3ng port 53682)
+  try { if (global.rcloneAuthChild) { global.rcloneAuthChild.kill('SIGKILL'); global.rcloneAuthChild = null; } } catch(e) {}
+  
   try {
-    const ro = readOnly ? 'true' : 'false';
-    JSON.parse(token);
-    await execPromise(`rclone config create "${remoteName}" "google photos" read_only=${ro} token=${JSON.stringify(token)} --config=/config/rclone.conf`);
-    res.json({ ok: true, msg: `✅ Remote "${remoteName}" đã được tạo thành công!` });
+    writeRcloneRemoteToConf(remoteName, token, readOnly);
+    res.json({ ok: true, msg: `\u2705 Remote "${remoteName}" \u0111\u00e3 \u0111\u01b0\u1ee3c t\u1ea1o th\u00e0nh c\u00f4ng! V\u00e0o tab Accounts \u0111\u1ec3 s\u1eed d\u1ee5ng.` });
   } catch(e) {
     res.status(500).json({ ok: false, msg: e.message });
   }
