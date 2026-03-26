@@ -1,7 +1,17 @@
-
+/**
+ * gphotos-backup-advanced - v2.4
+ * Tính năng mới (v2.4): UI cho Global Threshold, Quota và Size Mây
+ */
 async function reqJSON(url, opts){ const r = await fetch(url, opts); if(!r.ok) throw new Error(await r.text()); return r.json(); }
 async function init(){ try{ const j = await reqJSON('/api/rclone-url'); document.getElementById('rcloneLink').href = j.url; }catch(e){} tab('accounts'); }
 async function tab(name){ const v = document.getElementById('view'); if(name==='accounts'){ const cfg = await reqJSON('/api/config'); v.innerHTML = `
+<section>
+  <h2>Cấu hình chung (Global NAS Protection)</h2>
+  <div class="small">Nếu dung lượng trống trên NAS rớt xuống dưới mốc này, toàn bộ tiến trình rclone sẽ chặn khởi chạy hoặc tự động ép ngưng.</div>
+  <label>Ngưỡng dung lượng trống tối thiểu (GB)</label>
+  <input id="global_min_gb" value="${cfg.globalMinGB!==undefined?cfg.globalMinGB:5}" type="number" step="0.5"/>
+  <button onclick="saveGlobalConfig()">Lưu cấu hình Global</button>
+</section>
 <section>
   <h2>Quản lý Accounts</h2>
   <div class="flex">
@@ -13,6 +23,8 @@ async function tab(name){ const v = document.getElementById('view'); if(name==='
       <input id="acc_remote" placeholder="vd: gphotos_family" />
       <label>Thư mục đích trên DSM (bên trong /data)</label>
       <input id="acc_dest" placeholder="vd: /data/backups/family" />
+      <label>Hạn mức Quota cho thư mục này (GB) - Nhập 0 để Unlimit</label>
+      <input id="acc_quota" placeholder="vd: 50" type="number" step="1" value="0"/>
       <label><input type="checkbox" id="acc_year" /> Tạo thư mục theo năm (…/YYYY)</label>
       <details>
         <summary>Tùy chọn: Mã hoá (Crypt)</summary>
@@ -26,11 +38,11 @@ async function tab(name){ const v = document.getElementById('view'); if(name==='
     </div>
     <div class="w50">
       <h3>Danh sách</h3>
-      <table class="table"><thead><tr><th>Account</th><th>Remote</th><th>Dest</th><th>Year</th><th></th></tr></thead>
+      <table class="table"><thead><tr><th>Account</th><th>Remote</th><th>Dest</th><th>Quota</th><th>Hành động</th></tr></thead>
       <tbody id="acc_rows"></tbody></table>
     </div>
   </div>
-</section>`; document.getElementById('acc_rows').innerHTML = (cfg.accounts||[]).map(a=>`<tr><td>${a.name}</td><td>${a.remote}</td><td class="mono">${a.destPath}</td><td>${a.yearFolder?'✓':''}</td><td><button onclick="delAccount('${a.name}')">Xoá</button></td></tr>`).join(''); }
+</section>`; document.getElementById('acc_rows').innerHTML = (cfg.accounts||[]).map(a=>`<tr><td>${a.name}</td><td>${a.remote}</td><td class="mono">${a.destPath}</td><td>${a.maxQuotaGB?a.maxQuotaGB+'GB':'∞'}</td><td><button onclick="estimateRemoteSize('${a.name}')">Size Mây</button><button onclick="delAccount('${a.name}')">Xoá</button></td></tr>`).join(''); }
   if(name==='sync'){ const cfg = await reqJSON('/api/config'); v.innerHTML = `
 <section>
   <h2>Sync</h2>
@@ -68,8 +80,10 @@ async function tab(name){ const v = document.getElementById('view'); if(name==='
   <div id="rst_out" class="mono"></div>
 </section>`; }
 }
-async function saveAccount(){ const body = { name: acc_name.value.trim(), remote: acc_remote.value.trim(), destPath: acc_dest.value.trim(), yearFolder: acc_year.checked, cryptRemote: acc_crypt_remote.value.trim(), cryptPath: acc_crypt_path.value.trim() }; if(!body.name||!body.remote||!body.destPath){ alert('Thiếu tên/remote/thư mục đích'); return; } await reqJSON('/api/accounts',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)}); tab('accounts'); }
+async function saveGlobalConfig() { const gb = global_min_gb.value; await reqJSON('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({globalMinGB:gb})}); alert('Đã lưu cấu hình chung!'); }
+async function saveAccount(){ const body = { name: acc_name.value.trim(), remote: acc_remote.value.trim(), destPath: acc_dest.value.trim(), yearFolder: acc_year.checked, maxQuotaGB: acc_quota.value||0, cryptRemote: acc_crypt_remote.value.trim(), cryptPath: acc_crypt_path.value.trim() }; if(!body.name||!body.remote||!body.destPath){ alert('Thiếu tên/remote/thư mục đích'); return; } await reqJSON('/api/accounts',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)}); tab('accounts'); }
 async function delAccount(n){ if(!confirm('Xoá account '+n+'?')) return; await reqJSON('/api/accounts/'+encodeURIComponent(n), { method:'DELETE' }); tab('accounts'); }
+async function estimateRemoteSize(name) { alert('Đang gửi lệnh rclone kiểm tra trên cloud... quá trình này có thể mất từ 1-5 phút tuỳ thuộc số lượng ảnh. Vui lòng chờ thông báo mơi!'); try { const res = await reqJSON('/api/remote-size?account='+encodeURIComponent(name)); alert('Tài khoản: ' + name + '\nDung lượng đang dùng: ' + res.sizeGB + ' GB\nTổng số file (ảnh/video): ' + res.count); } catch(e) { alert('LỖI: ' + e.message); } }
 async function runSync(){ const account = sync_acc.value; const mode = sync_mode.value; const j = await reqJSON('/api/sync',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({account, mode})}); document.getElementById('sync_out').textContent = j.ok? ('Trạng thái: ' + j.msg + '\n\nTiến trình Rclone đã bắt đầu chạy ngầm trong background (thành công).\nBạn hãy chuyển sang tab [Logs] để xem chi tiết tiến độ đồng bộ của Rclone.') : ('LỖI:\n'+j.msg); }
 async function loadLog(){ const acc = log_acc.value; const r = await fetch('/api/logs?account='+encodeURIComponent(acc)); document.getElementById('log_out').textContent = await r.text(); }
 function renderSchedule(){ const el = document.getElementById('sched_rows'); const accounts = window.__accounts || []; const entries = (window.__sched && window.__sched.entries) || []; el.innerHTML = entries.map((e,idx)=> `
