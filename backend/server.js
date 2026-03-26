@@ -98,9 +98,9 @@ function buildRcloneCmd(acc, mode='sync'){
   if(acc.cryptRemote && acc.cryptRemote.trim().length>0){
     const cryptPath = (acc.cryptPath && acc.cryptPath.trim().length>0) ? acc.cryptPath.trim() : '/';
     const dstRemote = `${acc.cryptRemote}:${cryptPath === '/' ? '' : cryptPath}` + (yearFolder?`/${yearFolder}`:'');
-    return `rclone ${mode} "${src}" "${dstRemote}" --fast-list --create-empty-src-dirs --config=/config/rclone.conf --log-file=${path.posix.join(LOG_DIR, acc.name + '.log')} --use-json-log --stats=30s`;
+    return `rclone ${mode} "${src}" "${dstRemote}" --fast-list --create-empty-src-dirs --config=/config/rclone.conf --log-file="${path.posix.join(LOG_DIR, acc.name + '.log')}" --use-json-log --stats=30s --gphotos-read-only`;
   }
-  return `rclone ${mode} "${src}" "${dst}" --fast-list --create-empty-src-dirs --config=/config/rclone.conf --log-file=${path.posix.join(LOG_DIR, acc.name + '.log')} --use-json-log --stats=30s`;
+  return `rclone ${mode} "${src}" "${dst}" --fast-list --create-empty-src-dirs --config=/config/rclone.conf --log-file="${path.posix.join(LOG_DIR, acc.name + '.log')}" --use-json-log --stats=30s --gphotos-read-only`;
 }
 async function runBgJob(acc, mode='sync') {
   if (!global.activeJobs) global.activeJobs = {};
@@ -150,7 +150,7 @@ async function runBgJob(acc, mode='sync') {
   // Ghi log báo hiệu cho Web App
   try {
      const logFile = path.posix.join(LOG_DIR, acc.name + '.log');
-     fs.appendFileSync(logFile, `{"time":"${getGMT7()}","level":"info","msg":"[Web App] Đã ra lệnh bắt đầu tiến trình Rclone ${mode}. Đang quét máy chủ Cloud để dò tìm file (Nếu acc Google không có ảnh thì sẽ không có gì tải về)..."}\n`);
+     fs.appendFileSync(logFile, `{"time":"${getGMT7()}","level":"info","msg":"[Web App] Bắt đầu quét GPhotos thư mục \\"media/all\\" (Remote: ${acc.remote}). Nếu không thấy ảnh, hãy kiểm tra xem bạn đã cấp quyền Google Photos chưa."}\n`);
   } catch(e) {}
 
   const child = spawn(cmd, { shell: true, stdio: 'ignore' });
@@ -229,12 +229,14 @@ app.get('/api/restore', (req,res)=>{
   }catch(e){ res.status(400).json({ ok:false, msg:e.message }); }
 });
 app.get('/api/rclone-url', (req,res)=> res.json({ url: `${req.protocol}://${req.hostname}:5573` }));
-app.get('/api/version', (req,res) => {
-  let v = "v2.8 - " + new Date().toLocaleString('en-GB', { timeZone: 'Asia/Ho_Chi_Minh' });
+app.get('/api/version', async (req,res) => {
+  let v = "v2.9";
   try {
     const st = fs.statSync(__filename);
     const dateStr = new Date(st.mtimeMs).toLocaleString('en-GB', { timeZone: 'Asia/Ho_Chi_Minh' });
-    v = `[Cập nhật lúc: ${dateStr} GMT+7]`;
+    const { stdout: rv } = await execPromise('rclone version');
+    const rvShort = rv.split('\n')[0];
+    v = `[App v2.9 - ${dateStr} GMT+7] | [${rvShort}]`;
   } catch(e){}
   res.json({ version: v });
 });
@@ -359,6 +361,27 @@ app.get('/api/remote-size', async (req,res) => {
    } catch(e) {
       res.status(500).json({ ok: false, msg: e.message });
    }
+});
+
+app.get('/api/rclone-ls', async (req,res) => {
+  const { account } = req.query;
+  const cfg = listAccounts();
+  const acc = cfg.accounts.find(a => a.name === account);
+  if(!acc) return res.status(404).json({ ok:false, msg:'Không tìm thấy account' });
+  try {
+     // Thử quét media/all trước
+     try {
+       const src = `${acc.remote}:media/all`;
+       const { stdout } = await execPromise(`rclone lsf "${src}" --config=/config/rclone.conf --max-depth 1 --gphotos-read-only`);
+       return res.json({ ok:true, path: 'media/all', files: stdout.split('\n').filter(Boolean) });
+     } catch(err1) {
+       // Nếu media/all lỗi (directory not found), thử quét Root
+       const { stdout: stdoutRoot } = await execPromise(`rclone lsf "${acc.remote}:" --config=/config/rclone.conf --max-depth 1 --gphotos-read-only`);
+       return res.json({ ok:true, path: 'root', files: stdoutRoot.split('\n').filter(Boolean), error: err1.message });
+     }
+  } catch(e) {
+     res.status(500).json({ ok:false, msg: e.message });
+  }
 });
 
 function scheduleLoop(){

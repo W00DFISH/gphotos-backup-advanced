@@ -108,8 +108,9 @@ if(warnDiv) {
   <label>Chế độ</label>
   <select id="sync_mode"><option value="sync">sync (khuyến nghị)</option><option value="copy">copy</option></select>
   <button onclick="runSync()">Chạy ngay</button>
+  <button onclick="checkCloudFiles()" style="background:#475569; margin-left:10px;">Kiểm tra file trên Cloud</button>
   <h3>Kết quả</h3>
-  <div id="sync_out" class="mono"></div>
+  <div id="sync_out" class="mono" style="background:#0f172a; color:#f8fafc; padding:15px; border-radius:8px; min-height:100px; white-space:pre-wrap;"></div>
 </section>`; }
   if(name==='scheduler'){ const j = await reqJSON('/api/config'); const accounts = j.accounts||[]; const sched = j.schedule||{entries:[]}; v.innerHTML = `
 <section>
@@ -428,6 +429,23 @@ async function runSync(){
   } else {
     document.getElementById('sync_out').textContent = 'LỖI:\n'+j.msg;
   }
+}
+async function checkCloudFiles() {
+  const account = sync_acc.value;
+  const out = document.getElementById('sync_out');
+  out.textContent = 'Đang quét danh sách file trên mây (GPhotos:media/all)... vui lòng đợi...';
+  try {
+    const j = await reqJSON('/api/rclone-ls?account='+encodeURIComponent(account));
+    if(j.ok) {
+      if(j.files.length === 0) {
+        out.innerHTML = '<div style="color:#fbbf24">⚠ Rclone không tìm thấy file nào trong thư mục "media/all"!<br>Điều này thường do:<br>1. Bạn chưa cấp đủ quyền Google Photos (Scopes) khi lấy Token.<br>2. Account này thực sự chưa có ảnh nào được đồng bộ lên.<br>3. Bạn đang login bằng một account Google khác.</div>';
+      } else {
+        out.textContent = 'Tìm thấy ' + j.files.length + ' file:\n' + j.files.slice(0, 50).join('\n') + (j.files.length > 50 ? '\n...' : '');
+      }
+    } else {
+      out.textContent = 'LỖI: ' + j.msg;
+    }
+  } catch(e) { out.textContent = 'LỖI: ' + e.message; }
 }
 async function loadLog(){
   const acc = log_acc.value;
