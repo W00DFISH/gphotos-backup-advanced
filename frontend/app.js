@@ -239,7 +239,7 @@ async function submitRedirectUrl() {
     
     // B\u1eafn ng\u1ea7m fetch URL \u0111\u00f3 qua proxy local (\u0111\u1ec3 truy\u1ec1n param code cho rclone local)
     res.innerHTML = '<div style="color:#60a5fa">\u23f3 Đang gửi mã xác thực cho rclone... Vui lòng đợi 1 chút để ghi cấu hình.</div>';
-    fetch('/rclone-oauth/' + searchParams).catch(()=>{}); // B\u1ecf qua k\u1ebft qu\u1ea3, v\u00ec rclone ch\u1ec9 c\u1ea7n fetch ch\u1ea1m n\u00f3
+    fetch('/rclone-oauth/auth' + searchParams).catch(()=>{}); // B\u1ecf qua k\u1ebft qu\u1ea3, v\u00ec rclone ch\u1ec9 c\u1ea7n fetch ch\u1ea1m n\u00f3
   } catch (e) {
     res.innerHTML = '<div style="color:#f87171">\u274c Lỗi xử lý URL: ' + e.message + '</div>';
   }
@@ -271,6 +271,17 @@ async function importFromTerminal() {
     res.innerHTML = j.ok ? `<div style="color:#4ade80;font-size:15px">${j.msg}</div>` : `<div style="color:#f87171">LỖI: ${j.msg}</div>`;
   } catch(e) { res.innerHTML = '<div style="color:#f87171">LỖI: ' + e.message + '</div>'; }
 }
+
+async function saveGlobalConfig() {
+  const globalMinGB = parseFloat(document.getElementById('global_min_gb').value) || 0;
+  try {
+    const j = await reqJSON('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({globalMinGB}) });
+    if(j.ok) alert('Đã lưu cấu hình Global Quota thành công!');
+  } catch (e) {
+    alert('Lỗi lưu cấu hình: ' + e.message);
+  }
+}
+
 async function saveAccount(){ const body = { name: acc_name.value.trim(), remote: acc_remote.value.trim(), destPath: acc_dest.value.trim(), yearFolder: acc_year.checked, maxQuotaGB: acc_quota.value||0, cryptRemote: acc_crypt_remote.value.trim(), cryptPath: acc_crypt_path.value.trim() }; if(!body.name||!body.remote||!body.destPath){ alert('Thiếu tên/remote/thư mục đích'); return; } await reqJSON('/api/accounts',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)}); tab('accounts'); }
 async function delAccount(n){ if(!confirm('Xoá account '+n+'?')) return; await reqJSON('/api/accounts/'+encodeURIComponent(n), { method:'DELETE' }); tab('accounts'); }
 async function estimateRemoteSize(name, event) { 
