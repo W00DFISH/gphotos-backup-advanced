@@ -278,8 +278,8 @@ function writeRcloneRemoteToConf(remoteName, tokenStr, readOnly) {
   let conf = '';
   if (fs.existsSync(confPath)) {
     conf = fs.readFileSync(confPath, 'utf8');
-    // X\u00f3a section c\u0169 n\u1ebfu t\u1ed3n t\u1ea1i
-    const lines = conf.split('\\n');
+    // Xóa section cũ nếu tồn tại
+    const lines = conf.split('\n');
     const out = [];
     let skip = false;
     for (const line of lines) {
@@ -287,11 +287,11 @@ function writeRcloneRemoteToConf(remoteName, tokenStr, readOnly) {
       if (skip && line.trim().startsWith('[')) skip = false;
       if (!skip) out.push(line);
     }
-    conf = out.join('\\n').trimEnd();
+    conf = out.join('\n').trimEnd();
   }
 
-  // Append section m\u1edbi
-  const section = `\\n\\n[${remoteName}]\\ntype = google photos\\ntoken = ${tokenLine}\\nread_only = ${readOnly ? 'true' : 'false'}\\n`;
+  // Append section mới
+  const section = `\n\n[${remoteName}]\ntype = google photos\ntoken = ${tokenLine}\nread_only = ${readOnly ? 'true' : 'false'}\n`;
   fs.writeFileSync(confPath, conf + section, 'utf8');
 }
 
