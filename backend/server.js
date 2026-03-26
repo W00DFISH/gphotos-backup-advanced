@@ -170,136 +170,53 @@ app.get('/api/rclone-url', (req,res)=> res.json({ url: `${req.protocol}://${req.
 app.post('/api/schedule', (req,res)=>{ const body = req.body || { entries: [] }; saveJSON(SCHEDULE_FILE, body); res.json({ ok:true }); });
 
 // ===========================================================================
-// GOOGLE OAUTH REDIRECT FLOW
+// GOOGLE OAUTH - TERMINAL EMULATOR FLOW
 // ===========================================================================
-// State toàn cục cho phiên auth
 if (!global.rcloneAuthState) {
-  global.rcloneAuthState = { status: 'idle', url: null, remoteName: null, readOnly: true, msg: '', nasHost: null };
+  global.rcloneAuthState = { status: 'idle', output: '', remoteName: null, readOnly: true };
 }
 
-// Bắt đầu OAuth flow: spawn rclone authorize, lấy URL, giữ process sống chờ token
+// Khởi động tiến trình rclone authorize, stream output vào global state
 app.post('/api/rclone-authorize', (req, res) => {
   const { remoteName, readOnly } = req.body || {};
   if (!remoteName) return res.status(400).json({ ok: false, msg: 'Thiếu remoteName' });
 
-  // Lấy hostname của NAS từ request (user đang dùng IP/hostname này để vào web)
-  const nasHost = req.hostname || req.headers['x-forwarded-host'] || req.headers.host?.split(':')[0] || '127.0.0.1';
-
-  // Kill auth cũ nếu còn
+  // Kill phiên cũ nếu còn
   try { if (global.rcloneAuthChild) global.rcloneAuthChild.kill(); } catch(e) {}
 
-  global.rcloneAuthState = { status: 'pending', url: null, remoteName, readOnly: !!readOnly, msg: 'Đang chờ xác thực...', nasHost };
-
-  let accum = '';
-  let urlFound = false;
+  global.rcloneAuthState = { status: 'running', output: '$ rclone authorize "google photos" --auth-no-open-browser\n', remoteName, readOnly: !!readOnly };
 
   const child = spawn('rclone', ['authorize', 'google photos', '--auth-no-open-browser', '--config=/config/rclone.conf'], { shell: false });
   global.rcloneAuthChild = child;
 
-  // rclone in: "If your browser doesn't open automatically go to the following link: http://127.0.0.1:53682/auth?state=..."
-  // Hoặc dạng ngắn hơn: http://127.0.0.1:53682/auth?...
-  function tryExtractUrl(text) {
-    const m = text.match(/http:\/\/127\.0\.0\.1:53682[^\s"\n]+/);
-    if (m) {
-      // Thay 127.0.0.1 bằng IP/hostname thực của NAS để user ngoài Docker có thể truy cập
-      return m[0].replace('127.0.0.1', nasHost);
-    }
-    return null;
-  }
-
-  // Token JSON format từ rclone: một dòng bắt đầu bằng { kết thúc bằng }
-  function tryExtractToken(text) {
-    // rclone in token trên một dòng dưới dạng: {"access_token":...}
-    const m = text.match(/\n(\{"access_token"[^\n]+\})/m);
-    return m ? m[1] : null;
-  }
-
   function onData(chunk) {
-    accum += chunk.toString();
-
-    if (!urlFound) {
-      const url = tryExtractUrl(accum);
-      if (url) {
-        urlFound = true;
-        global.rcloneAuthState.url = url;
-        // Trả lời request ngay khi có URL
-        if (!res.headersSent) res.json({ ok: true, url });
-      }
-    }
-
-    // Tiếp tục theo dõi để bắt token sau khi user authorize
-    const token = tryExtractToken(accum);
-    if (token && global.rcloneAuthState.status === 'pending') {
-      _handleAuthToken(token);
-    }
+    global.rcloneAuthState.output += chunk.toString();
   }
-
   child.stdout.on('data', onData);
   child.stderr.on('data', onData);
 
-  // Timeout 5 phút cho toàn bộ auth session
-  const authTimeout = setTimeout(() => {
-    if (global.rcloneAuthState.status === 'pending') {
-      global.rcloneAuthState = { status: 'error', url: global.rcloneAuthState.url, remoteName, readOnly: !!readOnly, msg: 'Hết thời gian chờ (5 phút). Vui lòng thử lại.' };
-      try { child.kill(); } catch(e) {}
-    }
-  }, 5 * 60 * 1000);
-
   child.on('exit', () => {
-    clearTimeout(authTimeout);
-    // Nếu vẫn pending sau khi process thoát, thử parse token lần cuối
-    if (global.rcloneAuthState.status === 'pending') {
-      const token = tryExtractToken(accum);
-      if (token) { _handleAuthToken(token); }
-      else {
-        global.rcloneAuthState.status = 'error';
-        global.rcloneAuthState.msg = 'rclone process đã thoát nhưng không lấy được token.';
-      }
-    }
+    global.rcloneAuthState.status = 'done';
+    global.rcloneAuthState.output += '\n[Tiến trình đã kết thúc]\n';
   });
-
   child.on('error', (e) => {
-    clearTimeout(authTimeout);
-    if (!res.headersSent) res.json({ ok: false, msg: e.message });
-    if (global.rcloneAuthState.status === 'pending') {
-      global.rcloneAuthState.status = 'error';
-      global.rcloneAuthState.msg = e.message;
-    }
+    global.rcloneAuthState.status = 'error';
+    global.rcloneAuthState.output += `\n[LỖI: ${e.message}]\n`;
   });
 
-  // Nếu không lấy được URL sau 15s, báo lỗi
-  setTimeout(() => {
-    if (!urlFound && !res.headersSent) {
-      res.json({ ok: false, msg: 'Không lấy được URL sau 15s. Thử lại.', raw: accum });
-      global.rcloneAuthState.status = 'error';
-      global.rcloneAuthState.msg = 'Không lấy được URL.';
-    }
-  }, 15000);
+  res.json({ ok: true });
 });
 
-async function _handleAuthToken(tokenStr) {
-  const state = global.rcloneAuthState;
-  try {
-    JSON.parse(tokenStr); // validate JSON
-    const ro = state.readOnly ? 'true' : 'false';
-    await execPromise(`rclone config create "${state.remoteName}" "google photos" read_only=${ro} token=${JSON.stringify(tokenStr)} --config=/config/rclone.conf`);
-    global.rcloneAuthState = { ...state, status: 'success', msg: `✅ Remote "${state.remoteName}" đã được tạo thành công! Vào tab Accounts để sử dụng.` };
-  } catch(e) {
-    global.rcloneAuthState = { ...state, status: 'error', msg: `Lỗi ghi config: ${e.message}` };
-  }
-  try { if (global.rcloneAuthChild) global.rcloneAuthChild.kill(); } catch(e) {}
-}
-
-// Polling endpoint: frontend hỏi trạng thái mỗi 2s
-app.get('/api/rclone-auth-status', (req, res) => {
-  const s = global.rcloneAuthState || { status: 'idle' };
-  res.json({ ok: true, status: s.status, url: s.url, remoteName: s.remoteName, msg: s.msg });
+// Frontend poll output này mỗi 1s để hiển thị terminal giả
+app.get('/api/rclone-auth-output', (req, res) => {
+  const s = global.rcloneAuthState || { status: 'idle', output: '' };
+  res.json({ ok: true, status: s.status, output: s.output, remoteName: s.remoteName });
 });
 
-// Reset auth state (dùng khi bắt đầu flow mới)
+// Reset
 app.post('/api/rclone-auth-reset', (req, res) => {
   try { if (global.rcloneAuthChild) global.rcloneAuthChild.kill(); } catch(e) {}
-  global.rcloneAuthState = { status: 'idle', url: null, remoteName: null, readOnly: true, msg: '' };
+  global.rcloneAuthState = { status: 'idle', output: '', remoteName: null, readOnly: true };
   res.json({ ok: true });
 });
 

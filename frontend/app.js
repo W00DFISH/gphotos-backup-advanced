@@ -119,45 +119,35 @@ if(warnDiv) {
   if(name==='setup'){
     stopAuthPolling();
     v.innerHTML = `
-<section style="background:#0d1f0d;border-color:#166534;border-radius:10px;padding:18px 20px;margin-bottom:16px">
+<section style="background:#0d1f0d;border-color:#166534;padding:16px 20px">
   <h2 style="color:#4ade80;margin-top:0">🔐 Kết nối Google Photos</h2>
-  <div class="small" style="color:#86efac;line-height:1.8">
-    Nhập tên remote, bấm <b>Lấy link OAuth</b>, rồi click vào link Google để đăng nhập.<br>
-    Sau khi bạn bấm <b>Allow</b>, app sẽ tự động nhận token và tạo remote — không cần paste gì thêm.
+  <div class="small" style="color:#86ac;line-height:1.8">
+    Nhập tên remote rồi bấm <b>▶ Chạy rclone authorize</b>.<br>
+    Terminal sẽ hiện link — bấm link đó, đăng nhập Google, bấm Allow.<br>
+    Sau đó rclone in token → copy toàn bộ dòng <code>{...}</code> vào ô bên dưới.
   </div>
 </section>
 <section>
-  <h2>⚡ Bước 1 — Đặt tên Remote</h2>
-  <label>Tên Remote <span style="color:#94a3b8;font-size:12px">(chỉ dùng chữ, số, gạch dưới — vd: family_photos)</span></label>
-  <input id="setup_remote_name" placeholder="vd: family_photos" style="max-width:340px"/>
-  <label style="margin-top:10px"><input type="checkbox" id="setup_readonly" checked> Chế độ chỉ đọc (Read Only) — khuyến nghị khi chỉ backup</label>
-  <div style="margin-top:14px">
-    <button onclick="getAuthUrl()" id="btn_get_url" style="font-size:15px;padding:10px 22px">🔗 Lấy link OAuth Google</button>
-    <button onclick="resetAuthFlow()" style="margin-left:10px;background:#334155;color:#cbd5e1">↺ Làm mới</button>
+  <h2>⚡ Bước 1 — Cài đặt</h2>
+  <label>Tên Remote <span style="color:#94a3b8;font-size:12px">(vd: family_photos)</span></label>
+  <input id="setup_remote_name" placeholder="vd: family_photos" style="max-width:300px"/>
+  <label style="margin-top:8px"><input type="checkbox" id="setup_readonly" checked> Read Only (khuyến nghị khi chỉ backup)</label>
+  <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+    <button onclick="startRcloneTerminal()" id="btn_run_rclone" style="font-size:15px;padding:10px 20px;background:#16a34a;color:#fff">▶ Chạy rclone authorize</button>
+    <button onclick="resetRcloneTerminal()" style="background:#334155;color:#cbd5e1">↺ Reset</button>
   </div>
 </section>
-<section id="setup_link_section" style="display:none">
-  <h2>🌐 Bước 2 — Mở link và đăng nhập Google</h2>
-  <div class="small" style="margin-bottom:10px;color:#fde68a">Bấm vào link bên dưới. Sau khi bạn đăng nhập và bấm Allow, app sẽ tự động hoàn tất.</div>
-  <div id="setup_url_box"></div>
+<section>
+  <h2>💻 Terminal rclone</h2>
+  <div id="rclone_terminal" style="background:#0b0f1a;border:1px solid #1e3a5f;border-radius:8px;padding:14px;min-height:120px;max-height:340px;overflow-y:auto;font-family:monospace;font-size:13px;color:#93c5fd;white-space:pre-wrap;word-break:break-all">Chưa chạy. Bấm ▶ để bắt đầu...</div>
+  <div style="margin-top:8px;font-size:12px;color:#64748b">⚠️ Khi thấy link <code>http://127.0.0.1:53682/...</code> hãy bấm link đó (app tự thay IP đúng)</div>
 </section>
-<section id="setup_status_section" style="display:none">
-  <h2>📊 Bước 3 — Trạng thái</h2>
-  <div id="setup_status_box" style="font-size:15px;line-height:2"></div>
-</section>
-<section style="border-color:#334155;background:#0b1220">
-  <details>
-    <summary style="cursor:pointer;color:#94a3b8;font-size:13px">🛠 Thủ công: Paste token JSON (nâng cao)</summary>
-    <div style="margin-top:12px">
-      <label>Tên Remote</label>
-      <input id="setup_remote_name2" placeholder="vd: family_photos" style="max-width:300px"/>
-      <label>Token JSON</label>
-      <textarea id="setup_token" rows="4" style="width:100%;padding:8px;border-radius:6px;border:1px solid #334155;background:#0b1220;color:#e6eefc;font-family:monospace;box-sizing:border-box" placeholder='{"access_token":"ya29...","token_type":"Bearer","refresh_token":"1//...","expiry":"2026-..."}'></textarea>
-      <label><input type="checkbox" id="setup_readonly2" checked> Read Only</label>
-      <button onclick="importTokenManual()" id="btn_import" style="margin-top:8px">✅ Tạo Remote (thủ công)</button>
-      <div id="setup_result" style="margin-top:10px"></div>
-    </div>
-  </details>
+<section>
+  <h2>📋 Bước 2 — Paste Token & Tạo Remote</h2>
+  <div class="small" style="color:#fde68a;margin-bottom:10px">Sau khi bấm Allow trên Google, rclone sẽ in ra 1 dòng JSON bắt đầu bằng <code>{"access_token":</code> — copy dòng đó paste vào đây:</div>
+  <textarea id="setup_token" rows="4" style="width:100%;padding:8px;border-radius:6px;border:1px solid #334155;background:#0b1220;color:#e6eefc;font-family:monospace;font-size:12px;box-sizing:border-box" placeholder='{"access_token":"ya29...","token_type":"Bearer","refresh_token":"1//...","expiry":"2026-..."}'></textarea>
+  <button onclick="importFromTerminal()" id="btn_import" style="margin-top:8px;background:#2563eb;color:#fff;font-size:14px;padding:9px 18px">✅ Tạo Remote vào rclone.conf</button>
+  <div id="setup_result" style="margin-top:10px"></div>
 </section>`;
   }
   if(name==='restore'){ v.innerHTML = `
@@ -169,96 +159,77 @@ if(warnDiv) {
   <div id="rst_out" class="mono"></div>
 </section>`; }
 }
-// ── Google OAuth auto redirect flow ──────────────────────────────────────
+// ── rclone Terminal Emulator ─────────────────────────────────────────────────
 let _authPollTimer = null;
 function stopAuthPolling() { if(_authPollTimer){ clearInterval(_authPollTimer); _authPollTimer=null; } }
 
-async function getAuthUrl() {
+async function startRcloneTerminal() {
   const remoteName = (document.getElementById('setup_remote_name')||{}).value?.trim();
-  if (!remoteName) { alert('Vui lòng nhập tên remote trước!'); return; }
+  if (!remoteName) { alert('Vui lòng nhập tên remote!'); return; }
   const readOnly = (document.getElementById('setup_readonly')||{}).checked !== false;
-  const btn = document.getElementById('btn_get_url');
-  btn.disabled = true; btn.textContent = '⏳ Đang lấy link...';
-  // Reset state trên server
+  const btn = document.getElementById('btn_run_rclone');
+  const term = document.getElementById('rclone_terminal');
+  btn.disabled = true; btn.textContent = '⏳ Đang chạy...';
+  if(term) term.textContent = '$ rclone authorize "google photos" --auth-no-open-browser\n';
+  // Reset server state
   try { await reqJSON('/api/rclone-auth-reset', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' }); } catch(e) {}
-  // Hiện section link
-  const linkSec = document.getElementById('setup_link_section');
-  const statusSec = document.getElementById('setup_status_section');
-  const urlBox = document.getElementById('setup_url_box');
-  if(linkSec) linkSec.style.display = '';
-  if(statusSec) statusSec.style.display = '';
-  if(urlBox) urlBox.innerHTML = '<div class="small">⏳ Đang yêu cầu Google auth URL, vui lòng chờ...</div>';
+  // Spawn rclone
   try {
-    const j = await reqJSON('/api/rclone-authorize', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ remoteName, readOnly })
-    });
-    if (j.ok && j.url) {
-      const safeUrl = j.url.replace(/"/g,'&quot;');
-      if(urlBox) urlBox.innerHTML = `
-        <div style="word-break:break-all;padding:12px;background:#0b1a35;border-radius:8px;border:1px solid #1e40af">
-          <a href="${safeUrl}" target="_blank" style="color:#60a5fa;font-size:14px;line-height:1.8">${j.url}</a>
-        </div>
-        <button onclick="navigator.clipboard.writeText(this.dataset.url);this.textContent='✅ Đã copy!'" data-url="${safeUrl}" style="margin-top:8px">📋 Copy link</button>`;
-      // Bắt đầu polling trạng thái
-      startAuthPolling();
-    } else {
-      if(urlBox) urlBox.innerHTML = '<div style="color:#f87171">❌ Lỗi: ' + (j.msg||'Không lấy được URL') + '</div>';
-    }
+    await reqJSON('/api/rclone-authorize', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ remoteName, readOnly }) });
   } catch(e) {
-    if(urlBox) urlBox.innerHTML = '<div style="color:#f87171">❌ Lỗi: ' + e.message + '</div>';
+    if(term) term.textContent += '\n[LỖI kết nối: ' + e.message + ']';
+    btn.disabled = false; btn.textContent = '▶ Chạy lại';
+    return;
   }
-  btn.disabled = false; btn.textContent = '🔗 Lấy lại link OAuth';
+  // Bắt đầu polling output
+  startTerminalPolling();
+  btn.disabled = false; btn.textContent = '▶ Chạy lại';
 }
 
-function startAuthPolling() {
+function startTerminalPolling() {
   stopAuthPolling();
   _authPollTimer = setInterval(async () => {
     try {
-      const j = await reqJSON('/api/rclone-auth-status');
-      const box = document.getElementById('setup_status_box');
-      if (!box) { stopAuthPolling(); return; }
-      if (j.status === 'pending') {
-        box.innerHTML = '⏳ Đang chờ bạn authorize trên Google...';
-      } else if (j.status === 'success') {
-        stopAuthPolling();
-        box.innerHTML = `<div style="color:#4ade80;font-size:16px">${j.msg}</div>`;
-        // Ẩn link section vì đã xong
-        const ls = document.getElementById('setup_link_section');
-        if(ls) ls.style.display = 'none';
-      } else if (j.status === 'error') {
-        stopAuthPolling();
-        box.innerHTML = `<div style="color:#f87171">❌ ${j.msg}</div>`;
-      }
+      const j = await reqJSON('/api/rclone-auth-output');
+      const term = document.getElementById('rclone_terminal');
+      if (!term) { stopAuthPolling(); return; }
+      // Thay 127.0.0.1 bằng hostname NAS thật (dùng từ window.location.hostname)
+      const nasHost = window.location.hostname;
+      const output = (j.output || '').replace(/http:\/\/127\.0\.0\.1:53682/g, `http://${nasHost}:53682`);
+      // Render: URL thành tag <a> có thể click
+      term.innerHTML = output.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/(http:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" style="color:#60a5fa;text-decoration:underline">$1</a>');
+      term.scrollTop = term.scrollHeight;
+      // Nếu done/error thì dừng
+      if (j.status === 'done' || j.status === 'error') stopAuthPolling();
     } catch(e) {}
-  }, 2000);
+  }, 1000);
 }
 
-async function resetAuthFlow() {
+async function resetRcloneTerminal() {
   stopAuthPolling();
   try { await reqJSON('/api/rclone-auth-reset', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' }); } catch(e) {}
-  const linkSec = document.getElementById('setup_link_section');
-  const statusSec = document.getElementById('setup_status_section');
-  if(linkSec) linkSec.style.display = 'none';
-  if(statusSec) statusSec.style.display = 'none';
-  const nameEl = document.getElementById('setup_remote_name');
-  if(nameEl) nameEl.value = '';
+  const term = document.getElementById('rclone_terminal');
+  if(term) term.textContent = 'Đã reset. Bấm ▶ để chạy lại...';
+  const res = document.getElementById('setup_result');
+  if(res) res.innerHTML = '';
+  const ta = document.getElementById('setup_token');
+  if(ta) ta.value = '';
 }
 
-async function importTokenManual() {
-  const remoteName = (document.getElementById('setup_remote_name2')||{}).value?.trim();
+async function importFromTerminal() {
+  const remoteName = (document.getElementById('setup_remote_name')||{}).value?.trim();
   const token = (document.getElementById('setup_token')||{}).value?.trim();
-  const readOnly = (document.getElementById('setup_readonly2')||{}).checked !== false;
+  const readOnly = (document.getElementById('setup_readonly')||{}).checked !== false;
   const res = document.getElementById('setup_result');
-  if (!remoteName || !token) { res.innerHTML = '<div style="color:orange">⚠️ Vui lòng nhập tên remote và token.</div>'; return; }
-  try { JSON.parse(token); } catch(e) { res.innerHTML = '<div style="color:#f87171">Token JSON không hợp lệ.</div>'; return; }
+  if (!remoteName) { res.innerHTML = '<div style="color:orange">⚠️ Vui lòng nhập tên remote.</div>'; return; }
+  if (!token) { res.innerHTML = '<div style="color:orange">⚠️ Vui lòng paste token JSON.</div>'; return; }
+  try { JSON.parse(token); } catch(e) { res.innerHTML = '<div style="color:#f87171">Token JSON không hợp lệ. Hãy copy đúng dòng bắt đầu bằng {</div>'; return; }
   const btn = document.getElementById('btn_import'); btn.disabled = true; btn.textContent = '⏳ Đang tạo...';
   try {
     const j = await reqJSON('/api/rclone-token-import', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({remoteName, token, readOnly}) });
-    res.innerHTML = j.ok ? `<div style="color:#4ade80">${j.msg}</div>` : `<div style="color:#f87171">LỖI: ${j.msg}</div>`;
+    res.innerHTML = j.ok ? `<div style="color:#4ade80;font-size:15px">${j.msg}</div>` : `<div style="color:#f87171">LỖI: ${j.msg}</div>`;
   } catch(e) { res.innerHTML = '<div style="color:#f87171">LỖI: ' + e.message + '</div>'; }
-  btn.disabled = false; btn.textContent = '✅ Tạo Remote (thủ công)';
 }
 async function saveAccount(){ const body = { name: acc_name.value.trim(), remote: acc_remote.value.trim(), destPath: acc_dest.value.trim(), yearFolder: acc_year.checked, maxQuotaGB: acc_quota.value||0, cryptRemote: acc_crypt_remote.value.trim(), cryptPath: acc_crypt_path.value.trim() }; if(!body.name||!body.remote||!body.destPath){ alert('Thiếu tên/remote/thư mục đích'); return; } await reqJSON('/api/accounts',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)}); tab('accounts'); }
 async function delAccount(n){ if(!confirm('Xoá account '+n+'?')) return; await reqJSON('/api/accounts/'+encodeURIComponent(n), { method:'DELETE' }); tab('accounts'); }
