@@ -257,9 +257,9 @@ app.post('/api/rclone-authorize', (req, res) => {
   // Kill phiên cũ nếu còn
   try { if (global.rcloneAuthChild) global.rcloneAuthChild.kill(); } catch(e) {}
 
-  global.rcloneAuthState = { status: 'running', output: '$ rclone authorize "google photos" --scopes "https://www.googleapis.com/auth/photoslibrary.readonly" --auth-no-open-browser\n', remoteName, readOnly: !!readOnly };
+  global.rcloneAuthState = { status: 'running', output: '$ rclone authorize "google photos" --auth-no-open-browser\n', remoteName, readOnly: !!readOnly };
 
-  const child = spawn('rclone', ['authorize', 'google photos', '--scopes', 'https://www.googleapis.com/auth/photoslibrary.readonly', '--auth-no-open-browser', '--config=/config/rclone.conf'], { shell: false });
+  const child = spawn('rclone', ['authorize', 'google photos', '--auth-no-open-browser', '--config=/config/rclone.conf'], { shell: false });
   global.rcloneAuthChild = child;
 
   function onData(chunk) {
