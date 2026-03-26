@@ -1,6 +1,6 @@
 /**
- * gphotos-backup-advanced - v2.4
- * Tính năng mới (v2.4): Thêm Global NAS Space Threshold, Per-Account Quota, Remote Size Estimator
+ * gphotos-backup-advanced - v2.5
+ * Tính năng mới (v2.5): Auto-tạo thư mục đích trước khi sync, API log/tail cho live log polling
  */
 const express = require('express');
 const fs = require('fs');
@@ -77,10 +77,27 @@ async function runBgJob(acc, mode='sync') {
   }
 
   const cmd = buildRcloneCmd(acc, mode);
+
+  // Tự động tạo thư mục đích trên NAS trước khi chạy rclone (fix: DSM không thấy folder mới)
+  const destToCreate = (acc.destPath || '/data/backups').replace(/\\/g, '/');
+  try { fs.mkdirSync(destToCreate, { recursive: true }); } catch(e) {}
+  if (acc.yearFolder) {
+    try { fs.mkdirSync(path.posix.join(destToCreate, new Date().getFullYear().toString()), { recursive: true }); } catch(e) {}
+  }
+
+  // Ghi log báo hiệu cho Web App
+  try {
+     const logFile = path.posix.join(LOG_DIR, acc.name + '.log');
+     fs.appendFileSync(logFile, `{"time":"${new Date().toISOString()}","level":"info","msg":"[Web App] Đã ra lệnh bắt đầu tiến trình Rclone ${mode}. Đang quét máy chủ Cloud để dò tìm file (Nếu acc Google không có ảnh thì sẽ không có gì tải về)..."}\n`);
+  } catch(e) {}
+
   const child = spawn(cmd, { shell: true, stdio: 'ignore' });
   global.activeJobs[acc.name] = child;
   
-  child.on('exit', () => { delete global.activeJobs[acc.name]; });
+  child.on('exit', () => { 
+     delete global.activeJobs[acc.name]; 
+     try { fs.appendFileSync(path.posix.join(LOG_DIR, acc.name + '.log'), `{"time":"${new Date().toISOString()}","level":"info","msg":"[Web App] Tiến trình Rclone đã KẾT THÚC."}\n`); } catch(e){}
+  });
   child.on('error', () => { delete global.activeJobs[acc.name]; });
   
   return { ok: true, msg: 'Đã tạo tiến trình ngầm' };
@@ -128,6 +145,19 @@ app.get('/api/logs', (req,res)=>{
   const f = path.join(LOG_DIR, account + '.log');
   if(!fs.existsSync(f)) return res.send('Chưa có log');
   res.send(fs.readFileSync(f,'utf8'));
+});
+
+// Trả về N dòng cuối của log (dùng cho auto-refresh polling)
+app.get('/api/logs/tail', (req,res)=>{
+  const { account, lines } = req.query;
+  if(!account) return res.status(400).json({ ok:false });
+  const f = path.join(LOG_DIR, account + '.log');
+  if(!fs.existsSync(f)) return res.json({ ok:true, content:'Chưa có log cho account này.', running: false });
+  const all = fs.readFileSync(f,'utf8');
+  const n = parseInt(lines)||100;
+  const tail = all.split('\n').filter(Boolean).slice(-n).join('\n');
+  const isRunning = !!(global.activeJobs && global.activeJobs[account]);
+  res.json({ ok:true, content: tail, running: isRunning });
 });
 app.get('/api/restore', (req,res)=>{
   const dir = req.query.dir || '/data';

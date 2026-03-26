@@ -1,6 +1,6 @@
 /**
- * gphotos-backup-advanced - v2.4
- * Tính năng mới (v2.4): UI cho Global Threshold, Quota và Size Mây
+ * gphotos-backup-advanced - v2.5
+ * Tính năng mới (v2.5): Auto-refresh log sau sync, tự chuyển tab Logs
  */
 async function reqJSON(url, opts){ const r = await fetch(url, opts); if(!r.ok) throw new Error(await r.text()); return r.json(); }
 async function init(){ try{ const j = await reqJSON('/api/rclone-url'); document.getElementById('rcloneLink').href = j.url; }catch(e){} tab('accounts'); }
@@ -103,14 +103,19 @@ if(warnDiv) {
   <button onclick="addWeekly()">+ Weekly</button>
   <button onclick="saveSchedule()">Lưu lịch</button>
 </section>`; window.__accounts = accounts; window.__sched = sched; renderSchedule(); }
-  if(name==='logs'){ const cfg = await reqJSON('/api/config'); v.innerHTML = `
+  if(name==='logs'){
+    stopLogPolling();
+    const cfg = await reqJSON('/api/config');
+    v.innerHTML = `
 <section>
-  <h2>Logs</h2>
+  <h2>Logs <span id="log_status_badge" style="font-size:13px;margin-left:8px;"></span></h2>
   <label>Chọn account</label>
   <select id="log_acc">${(cfg.accounts||[]).map(a=>`<option>${a.name}</option>`).join('')}</select>
-  <button onclick="loadLog()">Tải log</button>
-  <div id="log_out" class="mono"></div>
-</section>`; }
+  <button onclick="loadLog()">Tải / Refresh log</button>
+  <button onclick="stopLogPolling(); document.getElementById('log_status_badge').textContent='⏸ Tạm dừng'">⏸ Dừng refresh</button>
+  <div id="log_out" class="mono" style="max-height:60vh;overflow-y:auto;"></div>
+</section>`;
+  }
   if(name==='restore'){ v.innerHTML = `
 <section>
   <h2>Restore / Duyệt thư mục</h2>
@@ -150,8 +155,59 @@ function editAccount(n) {
   document.getElementById('acc_crypt_path').value = a.cryptPath || '';
   document.getElementById('acc_name').focus();
 }
-async function runSync(){ const account = sync_acc.value; const mode = sync_mode.value; const j = await reqJSON('/api/sync',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({account, mode})}); document.getElementById('sync_out').textContent = j.ok? ('Trạng thái: ' + j.msg + '\n\nTiến trình Rclone đã bắt đầu chạy ngầm trong background (thành công).\nBạn hãy chuyển sang tab [Logs] để xem chi tiết tiến độ đồng bộ của Rclone.') : ('LỖI:\n'+j.msg); }
-async function loadLog(){ const acc = log_acc.value; const r = await fetch('/api/logs?account='+encodeURIComponent(acc)); document.getElementById('log_out').textContent = await r.text(); }
+// ── Auto-refresh log polling ──────────────────────────────────────────────
+let _logPollTimer = null;
+let _logPollAccount = null;
+function stopLogPolling() { if(_logPollTimer){ clearInterval(_logPollTimer); _logPollTimer=null; } }
+function startLogPolling(account) {
+  stopLogPolling();
+  _logPollAccount = account;
+  async function poll() {
+    try {
+      const j = await reqJSON('/api/logs/tail?account='+encodeURIComponent(account)+'&lines=200');
+      const el = document.getElementById('log_out');
+      if(el) {
+        el.textContent = parseLogContent(j.content || '');
+        el.scrollTop = el.scrollHeight;
+      }
+      const badge = document.getElementById('log_status_badge');
+      if(badge) badge.textContent = j.running ? '🟢 Đang chạy...' : '⚫ Đã xong';
+      if(!j.running) stopLogPolling();
+    } catch(e) {}
+  }
+  poll();
+  _logPollTimer = setInterval(poll, 2000);
+}
+function parseLogContent(raw) {
+  // Parse JSON log lines từ rclone --use-json-log sang text đẹp hơn
+  return raw.split('\n').map(line => {
+    try {
+      const o = JSON.parse(line);
+      const t = (o.time||'').replace('T',' ').slice(0,19);
+      return `[${t}] [${(o.level||'').toUpperCase()}] ${o.msg||''}`;
+    } catch(e) { return line; }
+  }).join('\n');
+}
+async function runSync(){
+  const account = sync_acc.value;
+  const mode = sync_mode.value;
+  const j = await reqJSON('/api/sync',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({account, mode})});
+  if(j.ok) {
+    // Tự chuyển sang tab Logs và bắt đầu auto-refresh
+    await tab('logs');
+    // Chọn đúng account trong dropdown logs
+    const sel = document.getElementById('log_acc');
+    if(sel) { sel.value = account; }
+    startLogPolling(account);
+  } else {
+    document.getElementById('sync_out').textContent = 'LỖI:\n'+j.msg;
+  }
+}
+async function loadLog(){
+  const acc = log_acc.value;
+  stopLogPolling();
+  startLogPolling(acc);
+}
 function renderSchedule(){ const el = document.getElementById('sched_rows'); const accounts = window.__accounts || []; const entries = (window.__sched && window.__sched.entries) || []; el.innerHTML = entries.map((e,idx)=> `
 <section>
   <div class="flex">
