@@ -174,7 +174,7 @@ app.post('/api/schedule', (req,res)=>{ const body = req.body || { entries: [] };
 // ===========================================================================
 // State toàn cục cho phiên auth
 if (!global.rcloneAuthState) {
-  global.rcloneAuthState = { status: 'idle', url: null, remoteName: null, readOnly: true, msg: '' };
+  global.rcloneAuthState = { status: 'idle', url: null, remoteName: null, readOnly: true, msg: '', nasHost: null };
 }
 
 // Bắt đầu OAuth flow: spawn rclone authorize, lấy URL, giữ process sống chờ token
@@ -182,10 +182,13 @@ app.post('/api/rclone-authorize', (req, res) => {
   const { remoteName, readOnly } = req.body || {};
   if (!remoteName) return res.status(400).json({ ok: false, msg: 'Thiếu remoteName' });
 
+  // Lấy hostname của NAS từ request (user đang dùng IP/hostname này để vào web)
+  const nasHost = req.hostname || req.headers['x-forwarded-host'] || req.headers.host?.split(':')[0] || '127.0.0.1';
+
   // Kill auth cũ nếu còn
   try { if (global.rcloneAuthChild) global.rcloneAuthChild.kill(); } catch(e) {}
 
-  global.rcloneAuthState = { status: 'pending', url: null, remoteName, readOnly: !!readOnly, msg: 'Đang chờ xác thực...' };
+  global.rcloneAuthState = { status: 'pending', url: null, remoteName, readOnly: !!readOnly, msg: 'Đang chờ xác thực...', nasHost };
 
   let accum = '';
   let urlFound = false;
@@ -193,9 +196,15 @@ app.post('/api/rclone-authorize', (req, res) => {
   const child = spawn('rclone', ['authorize', 'google photos', '--auth-no-open-browser', '--config=/config/rclone.conf'], { shell: false });
   global.rcloneAuthChild = child;
 
+  // rclone in: "If your browser doesn't open automatically go to the following link: http://127.0.0.1:53682/auth?state=..."
+  // Hoặc dạng ngắn hơn: http://127.0.0.1:53682/auth?...
   function tryExtractUrl(text) {
-    const m = text.match(/https:\/\/accounts\.google\.com[^\s"\n]+/);
-    return m ? m[0] : null;
+    const m = text.match(/http:\/\/127\.0\.0\.1:53682[^\s"\n]+/);
+    if (m) {
+      // Thay 127.0.0.1 bằng IP/hostname thực của NAS để user ngoài Docker có thể truy cập
+      return m[0].replace('127.0.0.1', nasHost);
+    }
+    return null;
   }
 
   // Token JSON format từ rclone: một dòng bắt đầu bằng { kết thúc bằng }
