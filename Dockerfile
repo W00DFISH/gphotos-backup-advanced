@@ -1,11 +1,8 @@
 
 FROM node:20-alpine
-RUN apk add --no-cache rclone bash wget git
+RUN apk add --no-cache rclone bash wget
 ENV NODE_ENV=production
 WORKDIR /app
-COPY .git ./.git
-RUN git log -1 --format="%cd - %s (%h)" --date=iso > /app/version.txt || echo "Unknown" > /app/version.txt
-RUN rm -rf .git
 COPY backend/package*.json ./backend/
 RUN cd backend  && if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi
 COPY backend ./backend

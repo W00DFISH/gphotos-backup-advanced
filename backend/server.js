@@ -210,11 +210,8 @@ app.get('/api/rclone-url', (req,res)=> res.json({ url: `${req.protocol}://${req.
 app.get('/api/version', (req,res) => {
   let v = "v2.8 - " + new Date().toISOString().slice(0, 10);
   try {
-    if (fs.existsSync('/app/version.txt')) {
-      v = fs.readFileSync('/app/version.txt', 'utf8').trim() || v;
-    } else {
-      v = require('child_process').execSync('git log -1 --format="%cd - %s (%h)" --date=short').toString().trim(); 
-    }
+    const st = fs.statSync(__filename);
+    v = `Bản Build lúc: ${new Date(st.mtimeMs).toISOString().replace('T', ' ').slice(0, 19)} (Tự Update)`;
   } catch(e){}
   res.json({ version: v });
 });
