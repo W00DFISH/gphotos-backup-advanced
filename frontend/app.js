@@ -193,12 +193,13 @@ function startTerminalPolling() {
       const j = await reqJSON('/api/rclone-auth-output');
       const term = document.getElementById('rclone_terminal');
       if (!term) { stopAuthPolling(); return; }
-      // Thay 127.0.0.1 bằng hostname NAS thật (dùng từ window.location.hostname)
-      const nasHost = window.location.hostname;
-      const output = (j.output || '').replace(/http:\/\/127\.0\.0\.1:53682/g, `http://${nasHost}:53682`);
+      // Thay URL rclone local (127.0.0.1:53682) bằng proxy route /rclone-oauth qua port 5572
+      // Browser bấm link này → Express forward ngầm sang rclone bên trong Docker
+      const proxyBase = window.location.origin + '/rclone-oauth';
+      const output = (j.output || '').replace(/http:\/\/127\.0\.0\.1:53682/g, proxyBase);
       // Render: URL thành tag <a> có thể click
       term.innerHTML = output.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-        .replace(/(http:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" style="color:#60a5fa;text-decoration:underline">$1</a>');
+        .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" style="color:#60a5fa;text-decoration:underline">$1</a>');
       term.scrollTop = term.scrollHeight;
       // Nếu done/error thì dừng
       if (j.status === 'done' || j.status === 'error') stopAuthPolling();

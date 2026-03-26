@@ -1,17 +1,41 @@
 /**
- * gphotos-backup-advanced - v2.6
- * Tính năng mới (v2.6): Google OAuth redirect flow — user bấm link, app tự nhận token và ghi rclone.conf
+ * gphotos-backup-advanced - v2.7
+ * v2.7: Proxy route /rclone-oauth/* — forward browser → rclone:53682 nội bộ qua port 5572
  */
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
 const { exec, spawn } = require('child_process');
 const util = require('util');
 const execPromise = util.promisify(exec);
 
 const app = express();
 app.use(express.json());
+
+// Proxy /rclone-oauth/* → http://127.0.0.1:53682/* (rclone auth server nội bộ Docker)
+// Giúp browser không cần expose port 53682 ra ngoài
+app.all('/rclone-oauth/*', (req, res) => {
+  const upstreamPath = req.url.replace('/rclone-oauth', '') || '/';
+  const options = {
+    hostname: '127.0.0.1',
+    port: 53682,
+    path: upstreamPath,
+    method: req.method,
+    headers: { ...req.headers, host: '127.0.0.1:53682' }
+  };
+  const proxy = http.request(options, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode, proxyRes.headers);
+    proxyRes.pipe(res, { end: true });
+  });
+  proxy.on('error', (e) => {
+    if (!res.headersSent) res.status(502).send('rclone auth server chưa sẵn sàng. Hãy chạy rclone authorize trước: ' + e.message);
+  });
+  req.pipe(proxy, { end: true });
+});
+
 app.use(express.static(path.join(__dirname, '..', 'frontend')));
+
 
 const CONFIG_DIR = '/config';
 const ACCOUNTS_FILE = path.join(CONFIG_DIR, 'accounts.json');
