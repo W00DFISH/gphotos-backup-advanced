@@ -350,16 +350,36 @@ function editAccount(n) {
   if(!cfg) return;
   const a = cfg.accounts.find(x => x.name === n);
   if(!a) return;
-  document.getElementById('acc_name').value = a.name;
-  const sel = document.getElementById('acc_remote');
-  if(![...sel.options].find(o=>o.value===a.remote)) { sel.innerHTML += `<option value="${a.remote}">${a.remote} (Cũ)</option>`; }
-  sel.value = a.remote;
+  const nameInp = document.getElementById('acc_name');
+  const remSel = document.getElementById('acc_remote');
+  
+  nameInp.value = a.name;
+  nameInp.disabled = true; // Không cho sửa tên account (key chính)
+  
+  if(![...remSel.options].find(o=>o.value===a.remote)) { 
+      remSel.innerHTML += `<option value="${a.remote}">${a.remote} (Đang dùng)</option>`; 
+  }
+  remSel.value = a.remote;
+  remSel.disabled = true; // Không cho sửa remote (tránh mismatch rclone.conf)
+
   document.getElementById('acc_dest').value = a.destPath;
   document.getElementById('acc_quota').value = a.maxQuotaGB || 0;
   document.getElementById('acc_year').checked = !!a.yearFolder;
   document.getElementById('acc_crypt_remote').value = a.cryptRemote || '';
   document.getElementById('acc_crypt_path').value = a.cryptPath || '';
-  document.getElementById('acc_name').focus();
+  
+  const btn = document.getElementById('btn_save_acc');
+  if(btn) btn.textContent = 'Cập nhật Account';
+  document.getElementById('acc_dest').focus();
+}
+
+function newAccount() {
+  const nameInp = document.getElementById('acc_name');
+  const remSel = document.getElementById('acc_remote');
+  if(nameInp) { nameInp.value = ''; nameInp.disabled = false; }
+  if(remSel) { remSel.disabled = false; tab('accounts'); } // reload list remotes
+  const btn = document.getElementById('btn_save_acc');
+  if(btn) btn.textContent = 'Lưu account mới';
 }
 // ── Auto-refresh log polling ──────────────────────────────────────────────
 let _logPollTimer = null;

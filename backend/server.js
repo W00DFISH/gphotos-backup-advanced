@@ -114,6 +114,15 @@ async function runBgJob(acc, mode='sync') {
         return { ok: false, msg: `KHÔNG THỂ CHẠY: Dung lượng trống toàn cục NAS (${freeGB.toFixed(2)} GB) thấp hơn mốc an toàn (${globalMin} GB).` };
      }
   } catch(e) {}
+
+  // Kiểm tra xem Remote có thực sự tồn tại trong rclone.conf không?
+  try {
+    const { stdout: rList } = await execPromise('rclone listremotes --config=/config/rclone.conf');
+    const existingRemotes = rList.split('\n').map(r=>r.trim().replace(':','')).filter(Boolean);
+    if (!existingRemotes.includes(acc.remote)) {
+       return { ok: false, msg: `LỖI CẤU HÌNH: Remote "${acc.remote}" không tồn tại trong rclone.conf! Các remote đang có: ${existingRemotes.join(', ')}` };
+    }
+  } catch(e) {}
   
   if (acc.maxQuotaGB && acc.maxQuotaGB > 0) {
       const dest = acc.destPath || '/data/backups';
@@ -338,7 +347,7 @@ app.get('/api/remote-size', async (req,res) => {
    if (accIndex < 0) return res.status(404).json({ ok:false, msg:'Không tìm thấy account' });
    try {
       const src = `${cfg.accounts[accIndex].remote}:media/all`;
-      const { stdout } = await execPromise(`rclone size ${src} --config=/config/rclone.conf --json`);
+      const { stdout } = await execPromise(`rclone size "${src}" --config=/config/rclone.conf --json`);
       const data = JSON.parse(stdout);
       const gb = (data.bytes / (1024*1024*1024)).toFixed(2);
       
