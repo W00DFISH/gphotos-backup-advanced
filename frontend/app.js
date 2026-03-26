@@ -258,8 +258,8 @@ async function submitRedirectUrl() {
     const urlObj = new URL(input.startsWith('http') ? input : 'http://localhost/' + input);
     const searchParams = urlObj.search;
     
-    // B\u1eafn ng\u1ea7m fetch URL \u0111\u00f3 qua proxy local (T\u1ef1 l\u1ea5y pathname user copy, th\u01b0\u1eddng l\u00e0 / \u0111\u1ec3 ph\u00f9 h\u1ee3p 100% v\u1edbi rclone config c\u1ee7a user)
-    const exactPath = (urlObj.pathname === '/' ? '' : urlObj.pathname) + urlObj.search;
+    // B\u1eafn ng\u1ea7m fetch URL \u0111\u00f3 qua proxy local (s\u1eed d\u1ee5ng \u0111\u00fang g\u1ed1c path m\u00e0 user \u0111\u00e3 copy \u0111\u1ec3 truy\u1ec1n qua rclone, kh\u00f4ng fix t\u1ee9ng url /)
+    const exactPath = urlObj.pathname + urlObj.search; // th\u01b0\u1eddng gi\u00e1 tr\u1ecb n\u00e0y l\u00e0 s\u1ebd l\u00e0: /?state=XYZ&...
     res.innerHTML = '<div style="color:#60a5fa">\u23f3 Đang gửi mã xác thực cho rclone... Vui lòng đợi 1 chút để xem k\u1ebft qu\u1ea3 (nh\u00ecn bi\u1ebfn log tr\u00ean terminal \u0111en).</div>';
     fetch('/rclone-oauth' + exactPath)
       .then(async (r) => {
