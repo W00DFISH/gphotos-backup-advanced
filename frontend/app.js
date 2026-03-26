@@ -117,33 +117,47 @@ if(warnDiv) {
 </section>`;
   }
   if(name==='setup'){
+    stopAuthPolling();
     v.innerHTML = `
-<section>
-  <h2>⚡ Bước 1 — Lấy link xác thực Google</h2>
-  <div class="small">Server sẽ chạy <code>rclone authorize</code> và trả về đường link OAuth. Bạn mở link đó trên máy tính, đăng nhập Google và copy token JSON.</div>
-  <button onclick="getAuthUrl()" id="btn_get_url">🔗 Lấy link OAuth từ Server</button>
-  <div id="setup_url_box" style="margin-top:12px;"></div>
+<section style="background:#0d1f0d;border-color:#166534;border-radius:10px;padding:18px 20px;margin-bottom:16px">
+  <h2 style="color:#4ade80;margin-top:0">🔐 Kết nối Google Photos</h2>
+  <div class="small" style="color:#86efac;line-height:1.8">
+    Nhập tên remote, bấm <b>Lấy link OAuth</b>, rồi click vào link Google để đăng nhập.<br>
+    Sau khi bạn bấm <b>Allow</b>, app sẽ tự động nhận token và tạo remote — không cần paste gì thêm.
+  </div>
 </section>
 <section>
-  <h2>📝 Bước 2 — Dán Token và tạo Remote</h2>
-  <div class="small">Sau khi authorize xong, trang redirect sẽ hiện token JSON dạng: <code>{"access_token":"...","refresh_token":"...", ...}</code><br>Copy toàn bộ đoạn JSON đó vào ô dưới.</div>
-  <label>Tên Remote (chỉ dùng chữ cái, số, gạch dưới)</label>
-  <input id="setup_remote_name" placeholder="vđ: family_photos" />
-  <label>Token JSON (dán vào đây)</label>
-  <textarea id="setup_token" rows="5" style="width:100%;padding:8px;border-radius:6px;border:1px solid #334155;background:#0b1220;color:#e6eefc;font-family:monospace;" placeholder='{"access_token":"ya29...","refresh_token":"1//...","expiry":"..."}'></textarea>
-  <label><input type="checkbox" id="setup_readonly"> Chế độ chỉ đọc (Read Only) — nên tick nếu chỉ cçn backup</label>
-  <button onclick="importToken()" id="btn_import">✅ Tạo Remote vào rclone.conf</button>
-  <div id="setup_result" style="margin-top:12px;"></div>
+  <h2>⚡ Bước 1 — Đặt tên Remote</h2>
+  <label>Tên Remote <span style="color:#94a3b8;font-size:12px">(chỉ dùng chữ, số, gạch dưới — vd: family_photos)</span></label>
+  <input id="setup_remote_name" placeholder="vd: family_photos" style="max-width:340px"/>
+  <label style="margin-top:10px"><input type="checkbox" id="setup_readonly" checked> Chế độ chỉ đọc (Read Only) — khuyến nghị khi chỉ backup</label>
+  <div style="margin-top:14px">
+    <button onclick="getAuthUrl()" id="btn_get_url" style="font-size:15px;padding:10px 22px">🔗 Lấy link OAuth Google</button>
+    <button onclick="resetAuthFlow()" style="margin-left:10px;background:#334155;color:#cbd5e1">↺ Làm mới</button>
+  </div>
 </section>
-<section style="background:#0a1e0a;border-color:#166534">
-  <h3>💡 Hướng dẫn chi tiết</h3>
-  <ol style="padding-left:18px;line-height:1.9;font-size:13px;">
-    <li>Bấm <b>Lấy link OAuth</b> → chờ đến khi xuất hiện đường link dài</li>
-    <li>Click vào link đó → đăng nhập bằng tài khoản Google Photos cần backup</li>
-    <li>Google sẽ điều hướng về trang <code>localhost</code> và hiện token JSON</li>
-    <li>Copy toàn bộ JSON đó vào <b>Bước 2</b> → Điền tên Remote → Bấm Tạo</li>
-    <li>Sau khi tạo xong, vào tab <b>Accounts</b> chọn Remote mới để đăng ký rồi Sync</li>
-  </ol>
+<section id="setup_link_section" style="display:none">
+  <h2>🌐 Bước 2 — Mở link và đăng nhập Google</h2>
+  <div class="small" style="margin-bottom:10px;color:#fde68a">Bấm vào link bên dưới. Sau khi bạn đăng nhập và bấm Allow, app sẽ tự động hoàn tất.</div>
+  <div id="setup_url_box"></div>
+</section>
+<section id="setup_status_section" style="display:none">
+  <h2>📊 Bước 3 — Trạng thái</h2>
+  <div id="setup_status_box" style="font-size:15px;line-height:2"></div>
+</section>
+<section style="border-color:#334155;background:#0b1220">
+  <details>
+    <summary style="cursor:pointer;color:#94a3b8;font-size:13px">🛠 Thủ công: Paste token JSON (nâng cao)</summary>
+    <div style="margin-top:12px">
+      <label>Tên Remote</label>
+      <input id="setup_remote_name2" placeholder="vd: family_photos" style="max-width:300px"/>
+      <label>Token JSON</label>
+      <textarea id="setup_token" rows="4" style="width:100%;padding:8px;border-radius:6px;border:1px solid #334155;background:#0b1220;color:#e6eefc;font-family:monospace;box-sizing:border-box" placeholder='{"access_token":"ya29...","token_type":"Bearer","refresh_token":"1//...","expiry":"2026-..."}'></textarea>
+      <label><input type="checkbox" id="setup_readonly2" checked> Read Only</label>
+      <button onclick="importTokenManual()" id="btn_import" style="margin-top:8px">✅ Tạo Remote (thủ công)</button>
+      <div id="setup_result" style="margin-top:10px"></div>
+    </div>
+  </details>
 </section>`;
   }
   if(name==='restore'){ v.innerHTML = `
@@ -155,40 +169,96 @@ if(warnDiv) {
   <div id="rst_out" class="mono"></div>
 </section>`; }
 }
-async function saveGlobalConfig() { const gb = global_min_gb.value; await reqJSON('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({globalMinGB:gb})}); alert('Đã lưu cấu hình chung!'); }
+// ── Google OAuth auto redirect flow ──────────────────────────────────────
+let _authPollTimer = null;
+function stopAuthPolling() { if(_authPollTimer){ clearInterval(_authPollTimer); _authPollTimer=null; } }
+
 async function getAuthUrl() {
+  const remoteName = (document.getElementById('setup_remote_name')||{}).value?.trim();
+  if (!remoteName) { alert('Vui lòng nhập tên remote trước!'); return; }
+  const readOnly = (document.getElementById('setup_readonly')||{}).checked !== false;
   const btn = document.getElementById('btn_get_url');
-  btn.disabled = true; btn.textContent = '⏳ Đang chứng thực với Google...';
-  const box = document.getElementById('setup_url_box');
-  box.innerHTML = '<div class="small">Vui lòng chờ ~10s... server đang chạy rclone authorize</div>';
+  btn.disabled = true; btn.textContent = '⏳ Đang lấy link...';
+  // Reset state trên server
+  try { await reqJSON('/api/rclone-auth-reset', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' }); } catch(e) {}
+  // Hiện section link
+  const linkSec = document.getElementById('setup_link_section');
+  const statusSec = document.getElementById('setup_status_section');
+  const urlBox = document.getElementById('setup_url_box');
+  if(linkSec) linkSec.style.display = '';
+  if(statusSec) statusSec.style.display = '';
+  if(urlBox) urlBox.innerHTML = '<div class="small">⏳ Đang yêu cầu Google auth URL, vui lòng chờ...</div>';
   try {
-    const j = await reqJSON('/api/rclone-authorize', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+    const j = await reqJSON('/api/rclone-authorize', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ remoteName, readOnly })
+    });
     if (j.ok && j.url) {
-      box.innerHTML = `
-        <div style="margin-top:8px">✅ Đã lấy được link. Mở link này trên trình duyệt máy tính của bạn:</div>
-        <div style="word-break:break-all;margin-top:8px;">
-          <a href="${j.url}" target="_blank" style="color:#60a5fa;">${j.url}</a>
+      const safeUrl = j.url.replace(/"/g,'&quot;');
+      if(urlBox) urlBox.innerHTML = `
+        <div style="word-break:break-all;padding:12px;background:#0b1a35;border-radius:8px;border:1px solid #1e40af">
+          <a href="${safeUrl}" target="_blank" style="color:#60a5fa;font-size:14px;line-height:1.8">${j.url}</a>
         </div>
-        <button onclick="navigator.clipboard.writeText('${j.url.replace(/'/g,"\\'")}')">Copy link</button>`;
+        <button onclick="navigator.clipboard.writeText(this.dataset.url);this.textContent='✅ Đã copy!'" data-url="${safeUrl}" style="margin-top:8px">📋 Copy link</button>`;
+      // Bắt đầu polling trạng thái
+      startAuthPolling();
     } else {
-      box.innerHTML = '<div style="color:red">LỖI: ' + (j.msg||'Không lấy được URL') + '<br><pre style="font-size:11px">' + (j.raw||'') + '</pre></div>';
+      if(urlBox) urlBox.innerHTML = '<div style="color:#f87171">❌ Lỗi: ' + (j.msg||'Không lấy được URL') + '</div>';
     }
-  } catch(e) { box.innerHTML = '<div style="color:red">LỖI: ' + e.message + '</div>'; }
+  } catch(e) {
+    if(urlBox) urlBox.innerHTML = '<div style="color:#f87171">❌ Lỗi: ' + e.message + '</div>';
+  }
   btn.disabled = false; btn.textContent = '🔗 Lấy lại link OAuth';
 }
-async function importToken() {
-  const remoteName = document.getElementById('setup_remote_name').value.trim();
-  const token = document.getElementById('setup_token').value.trim();
-  const readOnly = document.getElementById('setup_readonly').checked;
+
+function startAuthPolling() {
+  stopAuthPolling();
+  _authPollTimer = setInterval(async () => {
+    try {
+      const j = await reqJSON('/api/rclone-auth-status');
+      const box = document.getElementById('setup_status_box');
+      if (!box) { stopAuthPolling(); return; }
+      if (j.status === 'pending') {
+        box.innerHTML = '⏳ Đang chờ bạn authorize trên Google...';
+      } else if (j.status === 'success') {
+        stopAuthPolling();
+        box.innerHTML = `<div style="color:#4ade80;font-size:16px">${j.msg}</div>`;
+        // Ẩn link section vì đã xong
+        const ls = document.getElementById('setup_link_section');
+        if(ls) ls.style.display = 'none';
+      } else if (j.status === 'error') {
+        stopAuthPolling();
+        box.innerHTML = `<div style="color:#f87171">❌ ${j.msg}</div>`;
+      }
+    } catch(e) {}
+  }, 2000);
+}
+
+async function resetAuthFlow() {
+  stopAuthPolling();
+  try { await reqJSON('/api/rclone-auth-reset', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' }); } catch(e) {}
+  const linkSec = document.getElementById('setup_link_section');
+  const statusSec = document.getElementById('setup_status_section');
+  if(linkSec) linkSec.style.display = 'none';
+  if(statusSec) statusSec.style.display = 'none';
+  const nameEl = document.getElementById('setup_remote_name');
+  if(nameEl) nameEl.value = '';
+}
+
+async function importTokenManual() {
+  const remoteName = (document.getElementById('setup_remote_name2')||{}).value?.trim();
+  const token = (document.getElementById('setup_token')||{}).value?.trim();
+  const readOnly = (document.getElementById('setup_readonly2')||{}).checked !== false;
   const res = document.getElementById('setup_result');
   if (!remoteName || !token) { res.innerHTML = '<div style="color:orange">⚠️ Vui lòng nhập tên remote và token.</div>'; return; }
-  try { JSON.parse(token); } catch(e) { res.innerHTML = '<div style="color:red">Token JSON không hợp lệ. Hãy kiểm tra lại.</div>'; return; }
+  try { JSON.parse(token); } catch(e) { res.innerHTML = '<div style="color:#f87171">Token JSON không hợp lệ.</div>'; return; }
   const btn = document.getElementById('btn_import'); btn.disabled = true; btn.textContent = '⏳ Đang tạo...';
   try {
     const j = await reqJSON('/api/rclone-token-import', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({remoteName, token, readOnly}) });
-    res.innerHTML = j.ok ? `<div style="color:#4ade80">${j.msg}</div>` : `<div style="color:red">LỖI: ${j.msg}</div>`;
-  } catch(e) { res.innerHTML = '<div style="color:red">LỖI: ' + e.message + '</div>'; }
-  btn.disabled = false; btn.textContent = '✅ Tạo Remote vào rclone.conf';
+    res.innerHTML = j.ok ? `<div style="color:#4ade80">${j.msg}</div>` : `<div style="color:#f87171">LỖI: ${j.msg}</div>`;
+  } catch(e) { res.innerHTML = '<div style="color:#f87171">LỖI: ' + e.message + '</div>'; }
+  btn.disabled = false; btn.textContent = '✅ Tạo Remote (thủ công)';
 }
 async function saveAccount(){ const body = { name: acc_name.value.trim(), remote: acc_remote.value.trim(), destPath: acc_dest.value.trim(), yearFolder: acc_year.checked, maxQuotaGB: acc_quota.value||0, cryptRemote: acc_crypt_remote.value.trim(), cryptPath: acc_crypt_path.value.trim() }; if(!body.name||!body.remote||!body.destPath){ alert('Thiếu tên/remote/thư mục đích'); return; } await reqJSON('/api/accounts',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)}); tab('accounts'); }
 async function delAccount(n){ if(!confirm('Xoá account '+n+'?')) return; await reqJSON('/api/accounts/'+encodeURIComponent(n), { method:'DELETE' }); tab('accounts'); }

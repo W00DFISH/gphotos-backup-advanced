@@ -6,6 +6,7 @@ services:
     ports:
       - "5572:5572"
       - "5573:5573"
+      - "53682:53682"
     volumes:
       - /volume1/docker/rclone/config:/config
       - /volume3/photo:/data

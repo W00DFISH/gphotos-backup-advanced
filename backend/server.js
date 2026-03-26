@@ -1,6 +1,6 @@
 /**
- * gphotos-backup-advanced - v2.5
- * Tính năng mới (v2.5): Auto-tạo thư mục đích trước khi sync, API log/tail cho live log polling
+ * gphotos-backup-advanced - v2.6
+ * Tính năng mới (v2.6): Google OAuth redirect flow — user bấm link, app tự nhận token và ghi rclone.conf
  */
 const express = require('express');
 const fs = require('fs');
@@ -169,45 +169,142 @@ app.get('/api/restore', (req,res)=>{
 app.get('/api/rclone-url', (req,res)=> res.json({ url: `${req.protocol}://${req.hostname}:5573` }));
 app.post('/api/schedule', (req,res)=>{ const body = req.body || { entries: [] }; saveJSON(SCHEDULE_FILE, body); res.json({ ok:true }); });
 
-// Bắt đầu rclone authorize flow: spawn và capture URL từ stdout/stderr
-app.post('/api/rclone-authorize', (req,res)=>{
-  let output = '';
-  let urlSent = false;
+// ===========================================================================
+// GOOGLE OAUTH REDIRECT FLOW
+// ===========================================================================
+// State toàn cục cho phiên auth
+if (!global.rcloneAuthState) {
+  global.rcloneAuthState = { status: 'idle', url: null, remoteName: null, readOnly: true, msg: '' };
+}
+
+// Bắt đầu OAuth flow: spawn rclone authorize, lấy URL, giữ process sống chờ token
+app.post('/api/rclone-authorize', (req, res) => {
+  const { remoteName, readOnly } = req.body || {};
+  if (!remoteName) return res.status(400).json({ ok: false, msg: 'Thiếu remoteName' });
+
+  // Kill auth cũ nếu còn
+  try { if (global.rcloneAuthChild) global.rcloneAuthChild.kill(); } catch(e) {}
+
+  global.rcloneAuthState = { status: 'pending', url: null, remoteName, readOnly: !!readOnly, msg: 'Đang chờ xác thực...' };
+
+  let accum = '';
+  let urlFound = false;
+
   const child = spawn('rclone', ['authorize', 'google photos', '--auth-no-open-browser', '--config=/config/rclone.conf'], { shell: false });
-  if (!global.rcloneAuthChild) global.rcloneAuthChild = {};
-  global.rcloneAuthChild['gphotos'] = child;
-  function tryExtract(text) {
-    const match = text.match(/https:\/\/accounts\.google\.com[^\s"]+/);
-    return match ? match[0] : null;
+  global.rcloneAuthChild = child;
+
+  function tryExtractUrl(text) {
+    const m = text.match(/https:\/\/accounts\.google\.com[^\s"\n]+/);
+    return m ? m[0] : null;
   }
+
+  // Token JSON format từ rclone: một dòng bắt đầu bằng { kết thúc bằng }
+  function tryExtractToken(text) {
+    // rclone in token trên một dòng dưới dạng: {"access_token":...}
+    const m = text.match(/\n(\{"access_token"[^\n]+\})/m);
+    return m ? m[1] : null;
+  }
+
   function onData(chunk) {
-    output += chunk.toString();
-    if (!urlSent) {
-      const url = tryExtract(output);
-      if (url) { urlSent = true; res.json({ ok: true, url }); }
+    accum += chunk.toString();
+
+    if (!urlFound) {
+      const url = tryExtractUrl(accum);
+      if (url) {
+        urlFound = true;
+        global.rcloneAuthState.url = url;
+        // Trả lời request ngay khi có URL
+        if (!res.headersSent) res.json({ ok: true, url });
+      }
+    }
+
+    // Tiếp tục theo dõi để bắt token sau khi user authorize
+    const token = tryExtractToken(accum);
+    if (token && global.rcloneAuthState.status === 'pending') {
+      _handleAuthToken(token);
     }
   }
+
   child.stdout.on('data', onData);
   child.stderr.on('data', onData);
+
+  // Timeout 5 phút cho toàn bộ auth session
+  const authTimeout = setTimeout(() => {
+    if (global.rcloneAuthState.status === 'pending') {
+      global.rcloneAuthState = { status: 'error', url: global.rcloneAuthState.url, remoteName, readOnly: !!readOnly, msg: 'Hết thời gian chờ (5 phút). Vui lòng thử lại.' };
+      try { child.kill(); } catch(e) {}
+    }
+  }, 5 * 60 * 1000);
+
+  child.on('exit', () => {
+    clearTimeout(authTimeout);
+    // Nếu vẫn pending sau khi process thoát, thử parse token lần cuối
+    if (global.rcloneAuthState.status === 'pending') {
+      const token = tryExtractToken(accum);
+      if (token) { _handleAuthToken(token); }
+      else {
+        global.rcloneAuthState.status = 'error';
+        global.rcloneAuthState.msg = 'rclone process đã thoát nhưng không lấy được token.';
+      }
+    }
+  });
+
+  child.on('error', (e) => {
+    clearTimeout(authTimeout);
+    if (!res.headersSent) res.json({ ok: false, msg: e.message });
+    if (global.rcloneAuthState.status === 'pending') {
+      global.rcloneAuthState.status = 'error';
+      global.rcloneAuthState.msg = e.message;
+    }
+  });
+
+  // Nếu không lấy được URL sau 15s, báo lỗi
   setTimeout(() => {
-    if (!urlSent) { urlSent = true; res.json({ ok: false, msg: 'Không lấy được URL. Thử lại.', raw: output }); }
-  }, 12000);
-  child.on('error', (e) => { if (!urlSent) { urlSent = true; res.json({ ok: false, msg: e.message }); } });
+    if (!urlFound && !res.headersSent) {
+      res.json({ ok: false, msg: 'Không lấy được URL sau 15s. Thử lại.', raw: accum });
+      global.rcloneAuthState.status = 'error';
+      global.rcloneAuthState.msg = 'Không lấy được URL.';
+    }
+  }, 15000);
 });
 
-// Sau khi user authorize, paste token vào đây để tạo remote trong rclone.conf
-app.post('/api/rclone-token-import', async (req,res)=>{
+async function _handleAuthToken(tokenStr) {
+  const state = global.rcloneAuthState;
+  try {
+    JSON.parse(tokenStr); // validate JSON
+    const ro = state.readOnly ? 'true' : 'false';
+    await execPromise(`rclone config create "${state.remoteName}" "google photos" read_only=${ro} token=${JSON.stringify(tokenStr)} --config=/config/rclone.conf`);
+    global.rcloneAuthState = { ...state, status: 'success', msg: `✅ Remote "${state.remoteName}" đã được tạo thành công! Vào tab Accounts để sử dụng.` };
+  } catch(e) {
+    global.rcloneAuthState = { ...state, status: 'error', msg: `Lỗi ghi config: ${e.message}` };
+  }
+  try { if (global.rcloneAuthChild) global.rcloneAuthChild.kill(); } catch(e) {}
+}
+
+// Polling endpoint: frontend hỏi trạng thái mỗi 2s
+app.get('/api/rclone-auth-status', (req, res) => {
+  const s = global.rcloneAuthState || { status: 'idle' };
+  res.json({ ok: true, status: s.status, url: s.url, remoteName: s.remoteName, msg: s.msg });
+});
+
+// Reset auth state (dùng khi bắt đầu flow mới)
+app.post('/api/rclone-auth-reset', (req, res) => {
+  try { if (global.rcloneAuthChild) global.rcloneAuthChild.kill(); } catch(e) {}
+  global.rcloneAuthState = { status: 'idle', url: null, remoteName: null, readOnly: true, msg: '' };
+  res.json({ ok: true });
+});
+
+// [Legacy] Vẫn giữ lại để tương thích nếu cần paste token thủ công
+app.post('/api/rclone-token-import', async (req, res) => {
   const { remoteName, token, readOnly } = req.body || {};
-  if (!remoteName || !token) return res.status(400).json({ ok:false, msg:'Thiếu remoteName hoặc token' });
-  try { if(global.rcloneAuthChild && global.rcloneAuthChild['gphotos']) global.rcloneAuthChild['gphotos'].kill(); } catch(e){}
+  if (!remoteName || !token) return res.status(400).json({ ok: false, msg: 'Thiếu remoteName hoặc token' });
   try {
     const ro = readOnly ? 'true' : 'false';
-    // Parse token để kiểm tra hợp lệ
     JSON.parse(token);
     await execPromise(`rclone config create "${remoteName}" "google photos" read_only=${ro} token=${JSON.stringify(token)} --config=/config/rclone.conf`);
-    res.json({ ok:true, msg:`✅ Remote "${remoteName}" đã được tạo thành công! Hãy vào tab Accounts để sử dụng.` });
+    res.json({ ok: true, msg: `✅ Remote "${remoteName}" đã được tạo thành công!` });
   } catch(e) {
-    res.status(500).json({ ok:false, msg: e.message });
+    res.status(500).json({ ok: false, msg: e.message });
   }
 });
 
