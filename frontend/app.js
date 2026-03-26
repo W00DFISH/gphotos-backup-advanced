@@ -220,8 +220,14 @@ function startTerminalPolling() {
       
       // Tư\u0323 \u0111\u00f4\u0323ng parse Token b\u1eb1ng JSON.parse thay v\u00ec regex \u0111\u1ec3 support m\u1ecdi format l\u1ed9n x\u1ed9n c\u1ee7a rclone
       let tokenMatch = null;
-      for (const t of j.output.match(/\\{.*?\\}/gs) || []) {
-        try { const p = JSON.parse(t); if (p && p.access_token) { tokenMatch = JSON.stringify(p); break; } } catch(e) {}
+      let firstBrace = j.output.indexOf('{');
+      let lastBrace = j.output.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+          try { 
+             const tokenStr = j.output.substring(firstBrace, lastBrace + 1);
+             const p = JSON.parse(tokenStr); 
+             if (p && p.access_token) { tokenMatch = JSON.stringify(p); } 
+          } catch(e) {}
       }
 
       if (tokenMatch) {
@@ -254,8 +260,15 @@ async function submitRedirectUrl() {
     
     // B\u1eafn ng\u1ea7m fetch URL \u0111\u00f3 qua proxy local (T\u1ef1 l\u1ea5y pathname user copy, th\u01b0\u1eddng l\u00e0 / \u0111\u1ec3 ph\u00f9 h\u1ee3p 100% v\u1edbi rclone config c\u1ee7a user)
     const exactPath = (urlObj.pathname === '/' ? '' : urlObj.pathname) + urlObj.search;
-    res.innerHTML = '<div style="color:#60a5fa">\u23f3 Đang gửi mã xác thực cho rclone... Vui lòng đợi 1 chút để ghi cấu hình.</div>';
-    fetch('/rclone-oauth' + exactPath).catch(()=>{}); // B\u1ecf qua k\u1ebft qu\u1ea3, v\u00ec rclone ch\u1ec9 c\u1ea7n fetch ch\u1ea1m n\u00f3
+    res.innerHTML = '<div style="color:#60a5fa">\u23f3 Đang gửi mã xác thực cho rclone... Vui lòng đợi 1 chút để xem k\u1ebft qu\u1ea3 (nh\u00ecn bi\u1ebfn log tr\u00ean terminal \u0111en).</div>';
+    fetch('/rclone-oauth' + exactPath)
+      .then(async (r) => {
+        if (!r.ok) { res.innerHTML = `<div style="color:#f87171">\u274c Lỗi t\u1eeb server backend: HTTP ${r.status} - ${await r.text()}</div>`; }
+        else { res.innerHTML += '<div style="color:#fde047">\u21aa Đã báo thành công tới rclone! Đang ch\u1edd terminal b\u1eaft \u0111\u01b0\u1ee3c token json \u0111\u1ec3 l\u01b0u...</div>'; }
+      })
+      .catch((e)=>{
+        res.innerHTML = '<div style="color:#f87171">\u274c Mất kết nối tới NAS (fetch fail): ' + e.message + '</div>';
+      });
   } catch (e) {
     res.innerHTML = '<div style="color:#f87171">\u274c Lỗi xử lý URL: ' + e.message + '</div>';
   }

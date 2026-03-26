@@ -17,20 +17,36 @@ app.use(express.json());
 // Giúp browser không cần expose port 53682 ra ngoài
 app.all('/rclone-oauth/*', (req, res) => {
   const upstreamPath = req.url.replace('/rclone-oauth', '') || '/';
+  if (global.rcloneAuthState) {
+    global.rcloneAuthState.output += `\\n[PROXY-DEBUG] Trình duyệt vừa gửi URL: ${upstreamPath}\\n`;
+  }
+  
   const options = {
     hostname: '127.0.0.1',
     port: 53682,
     path: upstreamPath,
     method: req.method,
-    headers: { ...req.headers, host: '127.0.0.1:53682' }
+    headers: { ...req.headers, host: '127.0.0.1:53682' },
+    timeout: 5000 // 5 giây timeout d\u1ef1 ph\u00f2ng
   };
+  
   const proxy = http.request(options, (proxyRes) => {
+    if (global.rcloneAuthState) global.rcloneAuthState.output += `[PROXY-DEBUG] Rclone tr\u1ea3 l\u1eddi HTTP ${proxyRes.statusCode}\\n`;
     res.writeHead(proxyRes.statusCode, proxyRes.headers);
     proxyRes.pipe(res, { end: true });
   });
-  proxy.on('error', (e) => {
-    if (!res.headersSent) res.status(502).send('rclone auth server chưa sẵn sàng. Hãy chạy rclone authorize trước: ' + e.message);
+  
+  proxy.on('timeout', () => {
+    if (global.rcloneAuthState) global.rcloneAuthState.output += `[PROXY-DEBUG] Rclone kh\u00f4ng tr\u1ea3 l\u1eddi (Timeout)\\n`;
+    proxy.destroy();
+    if (!res.headersSent) res.status(504).send('Gateway Timeout');
   });
+  
+  proxy.on('error', (e) => {
+    if (global.rcloneAuthState) global.rcloneAuthState.output += `[PROXY-DEBUG] L\u1ed7i n\u1ed1i \u0111\u1ebfn rclone: ${e.message}\\n`;
+    if (!res.headersSent) res.status(502).send('rclone auth server ch\u01b0a s\u1eb5n s\u00e0ng ho\u1eb7c \u0111\u00e3 tho\u00e1t. L\u1ed7i: ' + e.message);
+  });
+  
   req.pipe(proxy, { end: true });
 });
 
