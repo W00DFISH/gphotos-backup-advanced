@@ -9,6 +9,7 @@ services:
     volumes:
       - /volume1/docker/rclone/config:/config
       - /volume3/photo:/data
+    user: "0:0"
     environment:
       - TZ=Asia/Ho_Chi_Minh
     restart: unless-stopped

@@ -169,6 +169,49 @@ app.get('/api/restore', (req,res)=>{
 app.get('/api/rclone-url', (req,res)=> res.json({ url: `${req.protocol}://${req.hostname}:5573` }));
 app.post('/api/schedule', (req,res)=>{ const body = req.body || { entries: [] }; saveJSON(SCHEDULE_FILE, body); res.json({ ok:true }); });
 
+// Bắt đầu rclone authorize flow: spawn và capture URL từ stdout/stderr
+app.post('/api/rclone-authorize', (req,res)=>{
+  let output = '';
+  let urlSent = false;
+  const child = spawn('rclone', ['authorize', 'google photos', '--auth-no-open-browser', '--config=/config/rclone.conf'], { shell: false });
+  if (!global.rcloneAuthChild) global.rcloneAuthChild = {};
+  global.rcloneAuthChild['gphotos'] = child;
+  function tryExtract(text) {
+    const match = text.match(/https:\/\/accounts\.google\.com[^\s"]+/);
+    return match ? match[0] : null;
+  }
+  function onData(chunk) {
+    output += chunk.toString();
+    if (!urlSent) {
+      const url = tryExtract(output);
+      if (url) { urlSent = true; res.json({ ok: true, url }); }
+    }
+  }
+  child.stdout.on('data', onData);
+  child.stderr.on('data', onData);
+  setTimeout(() => {
+    if (!urlSent) { urlSent = true; res.json({ ok: false, msg: 'Không lấy được URL. Thử lại.', raw: output }); }
+  }, 12000);
+  child.on('error', (e) => { if (!urlSent) { urlSent = true; res.json({ ok: false, msg: e.message }); } });
+});
+
+// Sau khi user authorize, paste token vào đây để tạo remote trong rclone.conf
+app.post('/api/rclone-token-import', async (req,res)=>{
+  const { remoteName, token, readOnly } = req.body || {};
+  if (!remoteName || !token) return res.status(400).json({ ok:false, msg:'Thiếu remoteName hoặc token' });
+  try { if(global.rcloneAuthChild && global.rcloneAuthChild['gphotos']) global.rcloneAuthChild['gphotos'].kill(); } catch(e){}
+  try {
+    const ro = readOnly ? 'true' : 'false';
+    // Parse token để kiểm tra hợp lệ
+    JSON.parse(token);
+    await execPromise(`rclone config create "${remoteName}" "google photos" read_only=${ro} token=${JSON.stringify(token)} --config=/config/rclone.conf`);
+    res.json({ ok:true, msg:`✅ Remote "${remoteName}" đã được tạo thành công! Hãy vào tab Accounts để sử dụng.` });
+  } catch(e) {
+    res.status(500).json({ ok:false, msg: e.message });
+  }
+});
+
+
 app.post('/api/settings', (req, res) => {
   const cfg = listAccounts();
   cfg.globalMinGB = parseFloat(req.body.globalMinGB) || 0;

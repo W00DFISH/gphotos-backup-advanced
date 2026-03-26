@@ -1,6 +1,6 @@
 /**
- * gphotos-backup-advanced - v2.5
- * Tính năng mới (v2.5): Auto-refresh log sau sync, tự chuyển tab Logs
+ * gphotos-backup-advanced - v2.6
+ * Tính năng mới (v2.6): Tab Setup Google OAuth - hướng dẫn kết nối Google Photos trong Docker
  */
 async function reqJSON(url, opts){ const r = await fetch(url, opts); if(!r.ok) throw new Error(await r.text()); return r.json(); }
 async function init(){ try{ const j = await reqJSON('/api/rclone-url'); document.getElementById('rcloneLink').href = j.url; }catch(e){} tab('accounts'); }
@@ -116,6 +116,36 @@ if(warnDiv) {
   <div id="log_out" class="mono" style="max-height:60vh;overflow-y:auto;"></div>
 </section>`;
   }
+  if(name==='setup'){
+    v.innerHTML = `
+<section>
+  <h2>⚡ Bước 1 — Lấy link xác thực Google</h2>
+  <div class="small">Server sẽ chạy <code>rclone authorize</code> và trả về đường link OAuth. Bạn mở link đó trên máy tính, đăng nhập Google và copy token JSON.</div>
+  <button onclick="getAuthUrl()" id="btn_get_url">🔗 Lấy link OAuth từ Server</button>
+  <div id="setup_url_box" style="margin-top:12px;"></div>
+</section>
+<section>
+  <h2>📝 Bước 2 — Dán Token và tạo Remote</h2>
+  <div class="small">Sau khi authorize xong, trang redirect sẽ hiện token JSON dạng: <code>{"access_token":"...","refresh_token":"...", ...}</code><br>Copy toàn bộ đoạn JSON đó vào ô dưới.</div>
+  <label>Tên Remote (chỉ dùng chữ cái, số, gạch dưới)</label>
+  <input id="setup_remote_name" placeholder="vđ: family_photos" />
+  <label>Token JSON (dán vào đây)</label>
+  <textarea id="setup_token" rows="5" style="width:100%;padding:8px;border-radius:6px;border:1px solid #334155;background:#0b1220;color:#e6eefc;font-family:monospace;" placeholder='{"access_token":"ya29...","refresh_token":"1//...","expiry":"..."}'></textarea>
+  <label><input type="checkbox" id="setup_readonly"> Chế độ chỉ đọc (Read Only) — nên tick nếu chỉ cçn backup</label>
+  <button onclick="importToken()" id="btn_import">✅ Tạo Remote vào rclone.conf</button>
+  <div id="setup_result" style="margin-top:12px;"></div>
+</section>
+<section style="background:#0a1e0a;border-color:#166534">
+  <h3>💡 Hướng dẫn chi tiết</h3>
+  <ol style="padding-left:18px;line-height:1.9;font-size:13px;">
+    <li>Bấm <b>Lấy link OAuth</b> → chờ đến khi xuất hiện đường link dài</li>
+    <li>Click vào link đó → đăng nhập bằng tài khoản Google Photos cần backup</li>
+    <li>Google sẽ điều hướng về trang <code>localhost</code> và hiện token JSON</li>
+    <li>Copy toàn bộ JSON đó vào <b>Bước 2</b> → Điền tên Remote → Bấm Tạo</li>
+    <li>Sau khi tạo xong, vào tab <b>Accounts</b> chọn Remote mới để đăng ký rồi Sync</li>
+  </ol>
+</section>`;
+  }
   if(name==='restore'){ v.innerHTML = `
 <section>
   <h2>Restore / Duyệt thư mục</h2>
@@ -126,6 +156,40 @@ if(warnDiv) {
 </section>`; }
 }
 async function saveGlobalConfig() { const gb = global_min_gb.value; await reqJSON('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({globalMinGB:gb})}); alert('Đã lưu cấu hình chung!'); }
+async function getAuthUrl() {
+  const btn = document.getElementById('btn_get_url');
+  btn.disabled = true; btn.textContent = '⏳ Đang chứng thực với Google...';
+  const box = document.getElementById('setup_url_box');
+  box.innerHTML = '<div class="small">Vui lòng chờ ~10s... server đang chạy rclone authorize</div>';
+  try {
+    const j = await reqJSON('/api/rclone-authorize', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+    if (j.ok && j.url) {
+      box.innerHTML = `
+        <div style="margin-top:8px">✅ Đã lấy được link. Mở link này trên trình duyệt máy tính của bạn:</div>
+        <div style="word-break:break-all;margin-top:8px;">
+          <a href="${j.url}" target="_blank" style="color:#60a5fa;">${j.url}</a>
+        </div>
+        <button onclick="navigator.clipboard.writeText('${j.url.replace(/'/g,"\\'")}')">Copy link</button>`;
+    } else {
+      box.innerHTML = '<div style="color:red">LỖI: ' + (j.msg||'Không lấy được URL') + '<br><pre style="font-size:11px">' + (j.raw||'') + '</pre></div>';
+    }
+  } catch(e) { box.innerHTML = '<div style="color:red">LỖI: ' + e.message + '</div>'; }
+  btn.disabled = false; btn.textContent = '🔗 Lấy lại link OAuth';
+}
+async function importToken() {
+  const remoteName = document.getElementById('setup_remote_name').value.trim();
+  const token = document.getElementById('setup_token').value.trim();
+  const readOnly = document.getElementById('setup_readonly').checked;
+  const res = document.getElementById('setup_result');
+  if (!remoteName || !token) { res.innerHTML = '<div style="color:orange">⚠️ Vui lòng nhập tên remote và token.</div>'; return; }
+  try { JSON.parse(token); } catch(e) { res.innerHTML = '<div style="color:red">Token JSON không hợp lệ. Hãy kiểm tra lại.</div>'; return; }
+  const btn = document.getElementById('btn_import'); btn.disabled = true; btn.textContent = '⏳ Đang tạo...';
+  try {
+    const j = await reqJSON('/api/rclone-token-import', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({remoteName, token, readOnly}) });
+    res.innerHTML = j.ok ? `<div style="color:#4ade80">${j.msg}</div>` : `<div style="color:red">LỖI: ${j.msg}</div>`;
+  } catch(e) { res.innerHTML = '<div style="color:red">LỖI: ' + e.message + '</div>'; }
+  btn.disabled = false; btn.textContent = '✅ Tạo Remote vào rclone.conf';
+}
 async function saveAccount(){ const body = { name: acc_name.value.trim(), remote: acc_remote.value.trim(), destPath: acc_dest.value.trim(), yearFolder: acc_year.checked, maxQuotaGB: acc_quota.value||0, cryptRemote: acc_crypt_remote.value.trim(), cryptPath: acc_crypt_path.value.trim() }; if(!body.name||!body.remote||!body.destPath){ alert('Thiếu tên/remote/thư mục đích'); return; } await reqJSON('/api/accounts',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)}); tab('accounts'); }
 async function delAccount(n){ if(!confirm('Xoá account '+n+'?')) return; await reqJSON('/api/accounts/'+encodeURIComponent(n), { method:'DELETE' }); tab('accounts'); }
 async function estimateRemoteSize(name, event) { 
