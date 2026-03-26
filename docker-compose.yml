@@ -2,8 +2,7 @@
 version: "3.9"
 services:
   app:
-    build: .
-    image: gphotos-backup-advanced:latest
+    image: ghcr.io/w00dfish/gphotos-backup-advanced:latest
     ports:
       - "5572:5572"
       - "5573:5573"
