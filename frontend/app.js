@@ -3,7 +3,17 @@
  * Tính năng mới (v2.6): Tab Setup Google OAuth - hướng dẫn kết nối Google Photos trong Docker
  */
 async function reqJSON(url, opts){ const r = await fetch(url, opts); if(!r.ok) throw new Error(await r.text()); return r.json(); }
-async function init(){ try{ const j = await reqJSON('/api/rclone-url'); document.getElementById('rcloneLink').href = j.url; }catch(e){} tab('accounts'); }
+async function init(){ 
+  try{ const j = await reqJSON('/api/rclone-url'); document.getElementById('rcloneLink').href = j.url; }catch(e){} 
+  try{ 
+    const v = await reqJSON('/api/version'); 
+    const f = document.createElement('footer');
+    f.style.textAlign = 'center'; f.style.padding = '10px'; f.style.color = '#475569'; f.style.fontSize = '12px'; f.style.marginTop = '20px';
+    f.innerHTML = `Git Tracking: <b>${v.version}</b>`;
+    document.body.appendChild(f);
+  }catch(e){}
+  tab('accounts'); 
+}
 async function tab(name){ const v = document.getElementById('view'); 
   if(name==='accounts'){ 
     const cfg = await reqJSON('/api/config'); 
@@ -118,6 +128,7 @@ if(warnDiv) {
   }
   if(name==='setup'){
     stopAuthPolling();
+    reqJSON('/api/rclone-auth-reset', {method:'POST'}).catch(()=>{}); // Clean log c\u0169 m\u1ed7i l\u1ea7n v\u00e0o tab
     v.innerHTML = `
 <section style="background:#0d1f0d;border-color:#166534;padding:16px 20px">
   <h2 style="color:#4ade80;margin-top:0">🔐 Kết nối Google Photos</h2>
@@ -207,12 +218,16 @@ function startTerminalPolling() {
         .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" style="color:#60a5fa;text-decoration:underline">$1</a>');
       term.scrollTop = term.scrollHeight;
       
-      // Tư\u0323 \u0111\u00f4\u0323ng parse Token n\u00ea\u0301u rclone xu\u00e2\u0301t ra
-      const match = j.output.match(/(\{[\s]*"access_token"[^\}]+\})/);
-      if (match && match[1]) {
+      // Tư\u0323 \u0111\u00f4\u0323ng parse Token b\u1eb1ng JSON.parse thay v\u00ec regex \u0111\u1ec3 support m\u1ecdi format l\u1ed9n x\u1ed9n c\u1ee7a rclone
+      let tokenMatch = null;
+      for (const t of j.output.match(/\\{.*?\\}/gs) || []) {
+        try { const p = JSON.parse(t); if (p && p.access_token) { tokenMatch = JSON.stringify(p); break; } } catch(e) {}
+      }
+
+      if (tokenMatch) {
         stopAuthPolling();
         term.innerHTML += '\n<span style="color:#4ade80">[T\u1ef1 \u0111\u1ed9ng] Đã tìm thấy mã Token JSON hợp lệ! Đang lưu config...</span>';
-        document.getElementById('setup_token').value = match[1];
+        document.getElementById('setup_token').value = tokenMatch;
         await importFromTerminal(); // T\u1ef1 \u0111\u1ed9ng t\u1ea1o
       }
       else if (j.status === 'done' || j.status === 'error') {
@@ -237,9 +252,10 @@ async function submitRedirectUrl() {
     const urlObj = new URL(input.startsWith('http') ? input : 'http://localhost/' + input);
     const searchParams = urlObj.search;
     
-    // B\u1eafn ng\u1ea7m fetch URL \u0111\u00f3 qua proxy local (\u0111\u1ec3 truy\u1ec1n param code cho rclone local)
+    // B\u1eafn ng\u1ea7m fetch URL \u0111\u00f3 qua proxy local (T\u1ef1 l\u1ea5y pathname user copy, th\u01b0\u1eddng l\u00e0 / \u0111\u1ec3 ph\u00f9 h\u1ee3p 100% v\u1edbi rclone config c\u1ee7a user)
+    const exactPath = (urlObj.pathname === '/' ? '' : urlObj.pathname) + urlObj.search;
     res.innerHTML = '<div style="color:#60a5fa">\u23f3 Đang gửi mã xác thực cho rclone... Vui lòng đợi 1 chút để ghi cấu hình.</div>';
-    fetch('/rclone-oauth/auth' + searchParams).catch(()=>{}); // B\u1ecf qua k\u1ebft qu\u1ea3, v\u00ec rclone ch\u1ec9 c\u1ea7n fetch ch\u1ea1m n\u00f3
+    fetch('/rclone-oauth' + exactPath).catch(()=>{}); // B\u1ecf qua k\u1ebft qu\u1ea3, v\u00ec rclone ch\u1ec9 c\u1ea7n fetch ch\u1ea1m n\u00f3
   } catch (e) {
     res.innerHTML = '<div style="color:#f87171">\u274c Lỗi xử lý URL: ' + e.message + '</div>';
   }
