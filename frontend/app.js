@@ -122,13 +122,14 @@ if(warnDiv) {
 <section style="background:#0d1f0d;border-color:#166534;padding:16px 20px">
   <h2 style="color:#4ade80;margin-top:0">🔐 Kết nối Google Photos</h2>
   <div class="small" style="color:#86ac;line-height:1.8">
-    Nhập tên remote rồi bấm <b>▶ Chạy rclone authorize</b>.<br>
-    Terminal sẽ hiện link — bấm link đó, đăng nhập Google, bấm Allow.<br>
-    Sau đó rclone in token → copy toàn bộ dòng <code>{...}</code> vào ô bên dưới.
+    1. Nhập tên remote rồi bấm <b>▶ Chạy rclone authorize</b>.<br>
+    2. Terminal hiện link — bấm link đó, đăng nhập Google, bấm Allow.<br>
+    3. Trình duyệt sẽ báo lỗi <b>mạng "127.0.0.1 refused to connect"</b> (do rclone chạy ẩn). Đừng lo!<br>
+    4. <b>Copy nguyên cái link đang báo lỗi đó</b> (dài ngoằng) và dán vào ô Bước 2 để app tự lấy token ngầm.
   </div>
 </section>
 <section>
-  <h2>⚡ Bước 1 — Cài đặt</h2>
+  <h2>⚡ Bước 1 — Chạy Auth</h2>
   <label>Tên Remote <span style="color:#94a3b8;font-size:12px">(vd: family_photos)</span></label>
   <input id="setup_remote_name" placeholder="vd: family_photos" style="max-width:300px"/>
   <label style="margin-top:8px"><input type="checkbox" id="setup_readonly" checked> Read Only (khuyến nghị khi chỉ backup)</label>
@@ -140,13 +141,19 @@ if(warnDiv) {
 <section>
   <h2>💻 Terminal rclone</h2>
   <div id="rclone_terminal" style="background:#0b0f1a;border:1px solid #1e3a5f;border-radius:8px;padding:14px;min-height:120px;max-height:340px;overflow-y:auto;font-family:monospace;font-size:13px;color:#93c5fd;white-space:pre-wrap;word-break:break-all">Chưa chạy. Bấm ▶ để bắt đầu...</div>
-  <div style="margin-top:8px;font-size:12px;color:#64748b">⚠️ Khi thấy link <code>http://127.0.0.1:53682/...</code> hãy bấm link đó (app tự thay IP đúng)</div>
+  <div style="margin-top:8px;font-size:12px;color:#64748b">⚠️ Khi thấy link <code>http://127.0.0.1:53682/...</code> hãy bấm link đó.</div>
 </section>
 <section>
-  <h2>📋 Bước 2 — Paste Token & Tạo Remote</h2>
-  <div class="small" style="color:#fde68a;margin-bottom:10px">Sau khi bấm Allow trên Google, rclone sẽ in ra 1 dòng JSON bắt đầu bằng <code>{"access_token":</code> — copy dòng đó paste vào đây:</div>
-  <textarea id="setup_token" rows="4" style="width:100%;padding:8px;border-radius:6px;border:1px solid #334155;background:#0b1220;color:#e6eefc;font-family:monospace;font-size:12px;box-sizing:border-box" placeholder='{"access_token":"ya29...","token_type":"Bearer","refresh_token":"1//...","expiry":"2026-..."}'></textarea>
-  <button onclick="importFromTerminal()" id="btn_import" style="margin-top:8px;background:#2563eb;color:#fff;font-size:14px;padding:9px 18px">✅ Tạo Remote vào rclone.conf</button>
+  <h2>🔗 Bước 2 — Dán Link báo lỗi để hoàn tất</h2>
+  <div class="small" style="color:#fde68a;margin-bottom:10px">Sau khi bấm Allow trên Google, bạn sẽ bị kẹt ở trang báo lỗi (127.0.0.1 refused). Nhấn lên thanh địa chỉ trình duyệt, copy toàn bộ URL đó dán vào đây:</div>
+  <input id="setup_redirect_url" placeholder="http://127.0.0.1:53682/?state=T8ZWGC...&code=4/0Aci..." style="width:100%;max-width:none"/>
+  <button onclick="submitRedirectUrl()" id="btn_submit_url" style="margin-top:8px;background:#2563eb;color:#fff;font-size:14px;padding:9px 18px">🚀 Nhận Token & Tạo Remote Tự Động</button>
+  
+  <details style="margin-top:16px">
+    <summary style="cursor:pointer;color:#94a3b8;font-size:13px">🛠 Hoặc tự dán Token JSON (nếu muốn)</summary>
+    <textarea id="setup_token" rows="4" style="width:100%;margin-top:8px;padding:8px;border-radius:6px;border:1px solid #334155;background:#0b1220;color:#e6eefc;font-family:monospace;font-size:12px;box-sizing:border-box" placeholder='{"access_token":"ya29..."}'></textarea>
+    <button onclick="importFromTerminal()" style="margin-top:8px">✅ Tạo Remote từ Token JSON</button>
+  </details>
   <div id="setup_result" style="margin-top:10px"></div>
 </section>`;
   }
@@ -193,19 +200,51 @@ function startTerminalPolling() {
       const j = await reqJSON('/api/rclone-auth-output');
       const term = document.getElementById('rclone_terminal');
       if (!term) { stopAuthPolling(); return; }
-      // Thay URL rclone local (127.0.0.1:53682) bằng proxy route /rclone-oauth qua port 5572
-      // Browser bấm link này → Express forward ngầm sang rclone bên trong Docker
+      
       const proxyBase = window.location.origin + '/rclone-oauth';
       const output = (j.output || '').replace(/http:\/\/127\.0\.0\.1:53682/g, proxyBase);
-      // Render: URL thành tag <a> có thể click
       term.innerHTML = output.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
         .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" style="color:#60a5fa;text-decoration:underline">$1</a>');
       term.scrollTop = term.scrollHeight;
-      // Nếu done/error thì dừng
-      if (j.status === 'done' || j.status === 'error') stopAuthPolling();
+      
+      // Tư\u0323 \u0111\u00f4\u0323ng parse Token n\u00ea\u0301u rclone xu\u00e2\u0301t ra
+      const match = j.output.match(/(\{[\s]*"access_token"[^\}]+\})/);
+      if (match && match[1]) {
+        stopAuthPolling();
+        term.innerHTML += '\n<span style="color:#4ade80">[T\u1ef1 \u0111\u1ed9ng] Đã tìm thấy mã Token JSON hợp lệ! Đang lưu config...</span>';
+        document.getElementById('setup_token').value = match[1];
+        await importFromTerminal(); // T\u1ef1 \u0111\u1ed9ng t\u1ea1o
+      }
+      else if (j.status === 'done' || j.status === 'error') {
+        stopAuthPolling();
+      }
     } catch(e) {}
   }, 1000);
 }
+
+async function submitRedirectUrl() {
+  const input = document.getElementById('setup_redirect_url').value.trim();
+  const res = document.getElementById('setup_result');
+  if (!input) { res.innerHTML = '<div style="color:orange">\u26a0\ufe0f Hãy dán URL đang bị lỗi vào đây.</div>'; return; }
+  
+  if (!input.includes('state=') || !input.includes('code=')) {
+    res.innerHTML = '<div style="color:#f87171">\u274c URL không hợp lệ. Hãy đảm bảo copy nguyên cái URL trên thanh địa chỉ có chứa "state=" và "code="</div>';
+    return;
+  }
+  
+  // Tr\u00edch xu\u1ea5t \u0111o\u1ea1n tham s\u1ed1 sau d\u1ea5u ?
+  try {
+    const urlObj = new URL(input.startsWith('http') ? input : 'http://localhost/' + input);
+    const searchParams = urlObj.search;
+    
+    // B\u1eafn ng\u1ea7m fetch URL \u0111\u00f3 qua proxy local (\u0111\u1ec3 truy\u1ec1n param code cho rclone local)
+    res.innerHTML = '<div style="color:#60a5fa">\u23f3 Đang gửi mã xác thực cho rclone... Vui lòng đợi 1 chút để ghi cấu hình.</div>';
+    fetch('/rclone-oauth/' + searchParams).catch(()=>{}); // B\u1ecf qua k\u1ebft qu\u1ea3, v\u00ec rclone ch\u1ec9 c\u1ea7n fetch ch\u1ea1m n\u00f3
+  } catch (e) {
+    res.innerHTML = '<div style="color:#f87171">\u274c Lỗi xử lý URL: ' + e.message + '</div>';
+  }
+}
+
 
 async function resetRcloneTerminal() {
   stopAuthPolling();
