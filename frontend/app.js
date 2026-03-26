@@ -20,7 +20,13 @@ async function tab(name){ const v = document.getElementById('view');
     let remotesHTML = '<option value="">-- Đang tải danh sách Remote... --</option>';
     reqJSON('/api/rclone-remotes').then(r => {
       if(r.ok && r.remotes.length>0) {
-        remotesHTML = '<option value="">-- Chạm để chọn cấu hình Rclone --</option>' + r.remotes.map(x=>`<option value="${x}">${x}</option>`).join('');
+        const usedRemotes = (cfg.accounts||[]).map(a => a.remote);
+        const avail = r.remotes.filter(x => !usedRemotes.includes(x));
+        if (avail.length > 0) {
+          remotesHTML = '<option value="">-- Chạm để chọn cấu hình Rclone --</option>' + avail.map(x=>`<option value="${x}">${x}</option>`).join('');
+        } else {
+          remotesHTML = '<option value="">(Tất cả Remote đã được khởi tạo thành Account)</option>';
+        }
         const sel = document.getElementById('acc_remote');
         if(sel) sel.innerHTML = remotesHTML;
       } else {
@@ -42,6 +48,7 @@ async function tab(name){ const v = document.getElementById('view');
   <div class="flex">
     <div class="w50">
       <h3>Thêm / Sửa account</h3>
+      <button onclick="newAccount()" style="font-size:12px;margin-bottom:10px;background:#334155">+ Bắt đầu nhập Account mới</button>
       <label>Tên account</label>
       <input id="acc_name" placeholder="vd: family" />
       <label>Rclone Remote (Google Photos)</label>
@@ -61,7 +68,7 @@ async function tab(name){ const v = document.getElementById('view');
         <label>Đường dẫn trong Crypt Remote</label>
         <input id="acc_crypt_path" placeholder="vd: /gphotos" />
       </details>
-      <button onclick="saveAccount()">Lưu account</button>
+      <button id="btn_save_acc" onclick="saveAccount()">Lưu account mới</button>
     </div>
     <div class="w50">
       <h3>Danh sách</h3>
@@ -301,6 +308,17 @@ async function importFromTerminal() {
   try {
     const j = await reqJSON('/api/rclone-token-import', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({remoteName, token, readOnly}) });
     res.innerHTML = j.ok ? `<div style="color:#4ade80;font-size:15px">${j.msg}</div>` : `<div style="color:#f87171">LỖI: ${j.msg}</div>`;
+    if (j.ok) {
+      setTimeout(() => {
+        tab('accounts');
+        setTimeout(() => {
+           const n = document.getElementById('acc_name'); if (n) { n.value = remoteName; n.focus(); }
+           const d = document.getElementById('acc_dest'); if (d) d.value = '/data/' + remoteName;
+           const r = document.getElementById('acc_remote');
+           if (r && Array.from(r.options).find(o => o.value === remoteName)) r.value = remoteName;
+        }, 600);
+      }, 2000);
+    }
   } catch(e) { res.innerHTML = '<div style="color:#f87171">LỖI: ' + e.message + '</div>'; }
 }
 

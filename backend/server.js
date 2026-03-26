@@ -62,6 +62,9 @@ function ensureFile(file, fallback){
   if(!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify(fallback, null, 2));
   try { return JSON.parse(fs.readFileSync(file, 'utf8') || 'null') || fallback; } catch(e){ return fallback; }
 }
+function getGMT7() {
+  return new Date().toLocaleString('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false }).replace(',', '');
+}
 function saveJSON(file, data){ fs.writeFileSync(file, JSON.stringify(data, null, 2)); }
 function listAccounts(){ return ensureFile(ACCOUNTS_FILE, { accounts: [] }); }
 function upsertAccount(acc){
@@ -73,6 +76,16 @@ function upsertAccount(acc){
 }
 function deleteAccount(name){
   const cfg = listAccounts();
+  const acc = cfg.accounts.find(a => a.name === name);
+  if (acc) {
+    try {
+      const logFile = path.posix.join(LOG_DIR, name + '.log');
+      if (fs.existsSync(logFile)) fs.unlinkSync(logFile);
+      if (acc.destPath && acc.destPath.startsWith('/data')) {
+        fs.rmSync(acc.destPath, { recursive: true, force: true });
+      }
+    } catch (e) {}
+  }
   const out = { accounts: cfg.accounts.filter(a => a.name !== name) };
   saveJSON(ACCOUNTS_FILE, out);
   return out;
@@ -85,9 +98,9 @@ function buildRcloneCmd(acc, mode='sync'){
   if(acc.cryptRemote && acc.cryptRemote.trim().length>0){
     const cryptPath = (acc.cryptPath && acc.cryptPath.trim().length>0) ? acc.cryptPath.trim() : '/';
     const dstRemote = `${acc.cryptRemote}:${cryptPath === '/' ? '' : cryptPath}` + (yearFolder?`/${yearFolder}`:'');
-    return `rclone ${mode} ${src} ${dstRemote} --fast-list --create-empty-src-dirs --config=/config/rclone.conf --log-file=${path.posix.join(LOG_DIR, acc.name + '.log')} --use-json-log --stats=30s`;
+    return `rclone ${mode} "${src}" "${dstRemote}" --fast-list --create-empty-src-dirs --config=/config/rclone.conf --log-file=${path.posix.join(LOG_DIR, acc.name + '.log')} --use-json-log --stats=30s`;
   }
-  return `rclone ${mode} ${src} ${dst} --fast-list --create-empty-src-dirs --config=/config/rclone.conf --log-file=${path.posix.join(LOG_DIR, acc.name + '.log')} --use-json-log --stats=30s`;
+  return `rclone ${mode} "${src}" "${dst}" --fast-list --create-empty-src-dirs --config=/config/rclone.conf --log-file=${path.posix.join(LOG_DIR, acc.name + '.log')} --use-json-log --stats=30s`;
 }
 async function runBgJob(acc, mode='sync') {
   if (!global.activeJobs) global.activeJobs = {};
@@ -128,7 +141,7 @@ async function runBgJob(acc, mode='sync') {
   // Ghi log báo hiệu cho Web App
   try {
      const logFile = path.posix.join(LOG_DIR, acc.name + '.log');
-     fs.appendFileSync(logFile, `{"time":"${new Date().toISOString()}","level":"info","msg":"[Web App] Đã ra lệnh bắt đầu tiến trình Rclone ${mode}. Đang quét máy chủ Cloud để dò tìm file (Nếu acc Google không có ảnh thì sẽ không có gì tải về)..."}\n`);
+     fs.appendFileSync(logFile, `{"time":"${getGMT7()}","level":"info","msg":"[Web App] Đã ra lệnh bắt đầu tiến trình Rclone ${mode}. Đang quét máy chủ Cloud để dò tìm file (Nếu acc Google không có ảnh thì sẽ không có gì tải về)..."}\n`);
   } catch(e) {}
 
   const child = spawn(cmd, { shell: true, stdio: 'ignore' });
@@ -136,7 +149,7 @@ async function runBgJob(acc, mode='sync') {
   
   child.on('exit', () => { 
      delete global.activeJobs[acc.name]; 
-     try { fs.appendFileSync(path.posix.join(LOG_DIR, acc.name + '.log'), `{"time":"${new Date().toISOString()}","level":"info","msg":"[Web App] Tiến trình Rclone đã KẾT THÚC."}\n`); } catch(e){}
+     try { fs.appendFileSync(path.posix.join(LOG_DIR, acc.name + '.log'), `{"time":"${getGMT7()}","level":"info","msg":"[Web App] Tiến trình Rclone đã KẾT THÚC."}\n`); } catch(e){}
   });
   child.on('error', () => { delete global.activeJobs[acc.name]; });
   
