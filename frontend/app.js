@@ -220,7 +220,7 @@ function startTerminalPolling() {
       
       // Tư\u0323 \u0111\u00f4\u0323ng parse Token b\u1eb1ng Marker \u0111\u1ec3 ch\u1ed1t ch\u1eb7n 100% token c\u1ee7a rclone, k\u1ec3 c\u1ea3 c\u00f3 xu\u1ed1ng d\u00f2ng hay n\u1ed9i dung d\u01b0 th\u1eeba!
       let tokenMatch = null;
-      let pasteMatch = j.output.match(/--->\\s*(\\{.*?\\})\\s*<---/s);
+      let pasteMatch = j.output.match(/--->\s*(\{.*?\})\s*<---/s);
       if (pasteMatch && pasteMatch[1]) {
           try {
              const p = JSON.parse(pasteMatch[1].trim());
@@ -228,7 +228,7 @@ function startTerminalPolling() {
           } catch(e) {}
       } else {
           // D\u1ef1 ph\u00f2ng khi kh\u00f4ng c\u00f3 marker: t\u00ecm Json ph\u1eb3ng
-          for (const t of j.output.match(/\\{[^}]+\\}/g) || []) {
+          for (const t of j.output.match(/\{[^}]+\}/g) || []) {
              try { const p = JSON.parse(t); if (p && p.access_token) { tokenMatch = JSON.stringify(p); break; } } catch(e) {}
           }
       }
