@@ -208,10 +208,11 @@ app.get('/api/restore', (req,res)=>{
 });
 app.get('/api/rclone-url', (req,res)=> res.json({ url: `${req.protocol}://${req.hostname}:5573` }));
 app.get('/api/version', (req,res) => {
-  let v = "v2.8 - " + new Date().toISOString().slice(0, 10);
+  let v = "v2.8 - " + new Date().toLocaleString('en-GB', { timeZone: 'Asia/Ho_Chi_Minh' });
   try {
     const st = fs.statSync(__filename);
-    v = `Bản Build lúc: ${new Date(st.mtimeMs).toISOString().replace('T', ' ').slice(0, 19)} (Tự Update)`;
+    const dateStr = new Date(st.mtimeMs).toLocaleString('en-GB', { timeZone: 'Asia/Ho_Chi_Minh' });
+    v = `[Cập nhật lúc: ${dateStr} GMT+7]`;
   } catch(e){}
   res.json({ version: v });
 });

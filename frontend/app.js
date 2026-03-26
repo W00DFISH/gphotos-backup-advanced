@@ -297,7 +297,7 @@ async function importFromTerminal() {
   if (!remoteName) { res.innerHTML = '<div style="color:orange">⚠️ Vui lòng nhập tên remote.</div>'; return; }
   if (!token) { res.innerHTML = '<div style="color:orange">⚠️ Vui lòng paste token JSON.</div>'; return; }
   try { JSON.parse(token); } catch(e) { res.innerHTML = '<div style="color:#f87171">Token JSON không hợp lệ. Hãy copy đúng dòng bắt đầu bằng {</div>'; return; }
-  const btn = document.getElementById('btn_import'); btn.disabled = true; btn.textContent = '⏳ Đang tạo...';
+  const btn = document.getElementById('btn_import'); if(btn) { btn.disabled = true; btn.textContent = '⏳ Đang tạo...'; }
   try {
     const j = await reqJSON('/api/rclone-token-import', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({remoteName, token, readOnly}) });
     res.innerHTML = j.ok ? `<div style="color:#4ade80;font-size:15px">${j.msg}</div>` : `<div style="color:#f87171">LỖI: ${j.msg}</div>`;
