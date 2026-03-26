@@ -437,13 +437,14 @@ async function checkCloudFiles() {
   try {
     const j = await reqJSON('/api/rclone-ls?account='+encodeURIComponent(account));
     if(j.ok) {
+      const debugText = j.debug ? `\n\n--- Debug Log ---\n${j.debug}` : '';
       if(j.files.length === 0) {
-        out.innerHTML = '<div style="color:#fbbf24">⚠ Rclone không tìm thấy file nào trong thư mục "media/all"!<br>Điều này thường do:<br>1. Bạn chưa cấp đủ quyền Google Photos (Scopes) khi lấy Token.<br>2. Account này thực sự chưa có ảnh nào được đồng bộ lên.<br>3. Bạn đang login bằng một account Google khác.</div>';
+        out.innerHTML = `<div style="color:#fbbf24">⚠ Rclone không tìm thấy file nào trong thư mục "media/all"!${debugText ? '<pre style="font-size:11px;color:#94a3b8">'+debugText+'</pre>' : ''}<br><br><b>Nguyên nhân cực kì phổ biến:</b><br>Khi đăng nhập Google, bạn đã <b>QUÊN</b> tích vào ô vuông <b>"Xem thư viện Google Photos của bạn"</b>. Google mặc định không tích ô này, bạn phải tự tay tích vào thì mới có quyền tải ảnh.</div>`;
       } else {
-        out.textContent = 'Tìm thấy ' + j.files.length + ' file:\n' + j.files.slice(0, 50).join('\n') + (j.files.length > 50 ? '\n...' : '');
+        out.textContent = `[Nguồn: ${j.source}] Tìm thấy ${j.files.length} file:\n` + j.files.slice(0, 50).join('\n') + (j.files.length > 50 ? '\n...' : '') + debugText;
       }
     } else {
-      out.textContent = 'LỖI: ' + j.msg;
+      out.textContent = 'LỖI: ' + j.msg + (j.debug ? '\n\nDebug:\n'+j.debug : '');
     }
   } catch(e) { out.textContent = 'LỖI: ' + e.message; }
 }

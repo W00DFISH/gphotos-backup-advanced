@@ -368,19 +368,32 @@ app.get('/api/rclone-ls', async (req,res) => {
   const cfg = listAccounts();
   const acc = cfg.accounts.find(a => a.name === account);
   if(!acc) return res.status(404).json({ ok:false, msg:'Không tìm thấy account' });
+  
+  let debugLog = [];
   try {
-     // Thử quét media/all trước
+     // 1. Thử quét media/all (Tiêu chuẩn)
+     debugLog.push("--- Thử quét media/all ---");
      try {
-       const src = `${acc.remote}:media/all`;
-       const { stdout } = await execPromise(`rclone lsf "${src}" --config=/config/rclone.conf --max-depth 1 --gphotos-read-only`);
-       return res.json({ ok:true, path: 'media/all', files: stdout.split('\n').filter(Boolean) });
-     } catch(err1) {
-       // Nếu media/all lỗi (directory not found), thử quét Root
-       const { stdout: stdoutRoot } = await execPromise(`rclone lsf "${acc.remote}:" --config=/config/rclone.conf --max-depth 1 --gphotos-read-only`);
-       return res.json({ ok:true, path: 'root', files: stdoutRoot.split('\n').filter(Boolean), error: err1.message });
-     }
+       const { stdout } = await execPromise(`rclone lsf "${acc.remote}:media/all" --config=/config/rclone.conf --max-depth 1 --gphotos-read-only`);
+       if(stdout.trim()) return res.json({ ok:true, source:'media/all', files: stdout.split('\n').filter(Boolean) });
+       debugLog.push("media/all rỗng.");
+     } catch(e) { debugLog.push("media/all lỗi: " + e.message); }
+
+     // 2. Thử quét media (Root của ảnh)
+     debugLog.push("--- Thử quét media ---");
+     try {
+       const { stdout } = await execPromise(`rclone lsf "${acc.remote}:media" --config=/config/rclone.conf --max-depth 1 --gphotos-read-only`);
+       if(stdout.trim()) return res.json({ ok:true, source:'media', files: stdout.split('\n').filter(Boolean) });
+       debugLog.push("media rỗng.");
+     } catch(e) { debugLog.push("media lỗi: " + e.message); }
+
+     // 3. Quét Root (:) để xem cấu trúc
+     debugLog.push("--- Quét cấu trúc gốc (root) ---");
+     const { stdout: rootList } = await execPromise(`rclone lsf "${acc.remote}:" --config=/config/rclone.conf --max-depth 1 --gphotos-read-only`);
+     res.json({ ok:true, source:'root', files: rootList.split('\n').filter(Boolean), debug: debugLog.join('\n') });
+
   } catch(e) {
-     res.status(500).json({ ok:false, msg: e.message });
+     res.status(500).json({ ok:false, msg: e.message, debug: debugLog.join('\n') });
   }
 });
 
