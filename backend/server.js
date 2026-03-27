@@ -255,7 +255,7 @@ app.post('/api/rclone-authorize', (req, res) => {
   const { remoteName, remoteType, readOnly } = req.body || {};
   if (!remoteName) return res.status(400).json({ ok: false, msg: 'Thiếu remoteName' });
 
-  const type = remoteType || 'googledrive';
+  const type = remoteType || 'drive';
 
   // Kill phiên cũ nếu còn
   try { if (global.rcloneAuthChild) global.rcloneAuthChild.kill(); } catch(e) {}
@@ -312,7 +312,7 @@ function writeRcloneRemoteToConf(remoteName, tokenStr, remoteType, options) {
   const confPath = '/config/rclone.conf';
   const tokenObj = JSON.parse(tokenStr); // validate JSON
   const tokenLine = JSON.stringify(tokenObj); // normalize
-  const type = remoteType || 'googledrive';
+  const type = remoteType || 'drive';
   const opts = options || {};
 
   let conf = '';
@@ -336,7 +336,7 @@ function writeRcloneRemoteToConf(remoteName, tokenStr, remoteType, options) {
     sectionLines.push(`type = google photos`);
     sectionLines.push(`token = ${tokenLine}`);
     sectionLines.push(`read_only = ${opts.readOnly ? 'true' : 'false'}`);
-  } else if (type === 'googledrive') {
+  } else if (type === 'drive') {
     sectionLines.push(`type = drive`);
     sectionLines.push(`scope = drive.readonly`);
     sectionLines.push(`token = ${tokenLine}`);
@@ -360,7 +360,7 @@ app.post('/api/rclone-token-import', (req, res) => {
   try { if (global.rcloneAuthChild) { global.rcloneAuthChild.kill('SIGKILL'); global.rcloneAuthChild = null; } } catch(e) {}
   
   try {
-    writeRcloneRemoteToConf(remoteName, token, remoteType || global.rcloneAuthState?.remoteType || 'googledrive', { readOnly, driveType, driveId });
+    writeRcloneRemoteToConf(remoteName, token, remoteType || global.rcloneAuthState?.remoteType || 'drive', { readOnly, driveType, driveId });
     const label = remoteType === 'onedrive' ? 'OneDrive' : remoteType === 'google photos' ? 'Google Photos' : 'Google Drive';
     res.json({ ok: true, msg: `✅ Remote "${remoteName}" (${label}) đã được tạo thành công! Vào tab Accounts để sử dụng.` });
   } catch(e) {

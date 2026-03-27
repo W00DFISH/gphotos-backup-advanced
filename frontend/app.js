@@ -213,7 +213,7 @@ let _authPollTimer = null;
 function stopAuthPolling() { if(_authPollTimer){ clearInterval(_authPollTimer); _authPollTimer=null; } }
 
 // -- Provider Selection --
-let currentRemoteType = 'googledrive';
+let currentRemoteType = 'drive';
 let currentDriveType = 'personal';
 
 function selectProvider(provider) {
@@ -232,7 +232,7 @@ function selectProvider(provider) {
   if (flowEl) flowEl.style.display = '';
 
   if (provider === 'googledrive') {
-    currentRemoteType = 'googledrive'; currentDriveType = null;
+    currentRemoteType = 'drive'; currentDriveType = null;
     if (labelEl) labelEl.innerHTML = '<span style="color:#60a5fa">📂 Google Drive</span> — Sẽ yêu cầu quyền đọc file trên Drive';
     if (extraEl) extraEl.style.display = 'none';
   } else if (provider === 'onedrive_personal') {
@@ -253,7 +253,7 @@ function selectProvider(provider) {
 async function startRcloneTerminal() {
   const remoteName = (document.getElementById('setup_remote_name')||{}).value?.trim();
   if (!remoteName) { alert('Vui lòng nhập tên remote!'); return; }
-  const remoteType = currentRemoteType || 'googledrive';
+  const remoteType = currentRemoteType || 'drive';
   const btn = document.getElementById('btn_run_rclone');
   const term = document.getElementById('rclone_terminal');
   btn.disabled = true; btn.textContent = '⏳ Đang chạy...';
@@ -361,7 +361,7 @@ async function resetRcloneTerminal() {
 async function importFromTerminal() {
   const remoteName = (document.getElementById('setup_remote_name')||{}).value?.trim();
   const token = (document.getElementById('setup_token')||{}).value?.trim();
-  const remoteType = currentRemoteType || 'googledrive';
+  const remoteType = currentRemoteType || 'drive';
   const driveType = currentDriveType || 'personal';
   const driveId = (document.getElementById('setup_drive_id')||{}).value?.trim() || '';
   const res = document.getElementById('setup_result');
