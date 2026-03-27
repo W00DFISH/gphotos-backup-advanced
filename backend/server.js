@@ -90,17 +90,22 @@ function deleteAccount(name){
   saveJSON(ACCOUNTS_FILE, out);
   return out;
 }
-function buildRcloneCmd(acc, mode='sync'){
-  const yearFolder = acc.yearFolder ? (new Date().getFullYear().toString()) : '';
-  const baseDst = (acc.destPath || '/data/backups').replace(/\\/g,'/');
-  const dst = yearFolder ? path.posix.join(baseDst, yearFolder) : baseDst;
-  const src = `${acc.remote}:media/all`;
+function buildRcloneCmd(acc, mode='sync', rType='unknown'){
+  const dst = (acc.destPath || '/data/backups').replace(/\\/g,'/');
+  let src = `${acc.remote}:`;
+  let extraFlags = `--fast-list --create-empty-src-dirs --config=/config/rclone.conf --log-file="${path.posix.join(LOG_DIR, acc.name + '.log')}" --use-json-log --stats=30s`;
+  
+  if (rType === 'google photos') {
+    src = `${acc.remote}:media/all`;
+    extraFlags += ` --gphotos-read-only`;
+  }
+
   if(acc.cryptRemote && acc.cryptRemote.trim().length>0){
     const cryptPath = (acc.cryptPath && acc.cryptPath.trim().length>0) ? acc.cryptPath.trim() : '/';
-    const dstRemote = `${acc.cryptRemote}:${cryptPath === '/' ? '' : cryptPath}` + (yearFolder?`/${yearFolder}`:'');
-    return `rclone ${mode} "${src}" "${dstRemote}" --fast-list --create-empty-src-dirs --config=/config/rclone.conf --log-file="${path.posix.join(LOG_DIR, acc.name + '.log')}" --use-json-log --stats=30s --gphotos-read-only`;
+    const dstRemote = `${acc.cryptRemote}:${cryptPath === '/' ? '' : cryptPath}`;
+    return `rclone ${mode} "${src}" "${dstRemote}" ${extraFlags}`;
   }
-  return `rclone ${mode} "${src}" "${dst}" --fast-list --create-empty-src-dirs --config=/config/rclone.conf --log-file="${path.posix.join(LOG_DIR, acc.name + '.log')}" --use-json-log --stats=30s --gphotos-read-only`;
+  return `rclone ${mode} "${src}" "${dst}" ${extraFlags}`;
 }
 async function runBgJob(acc, mode='sync') {
   if (!global.activeJobs) global.activeJobs = {};
@@ -138,14 +143,18 @@ async function runBgJob(acc, mode='sync') {
       }
   }
 
-  const cmd = buildRcloneCmd(acc, mode);
+  let rType = 'unknown';
+  try {
+     const { stdout } = await execPromise('rclone config dump --config=/config/rclone.conf');
+     const dump = JSON.parse(stdout);
+     if (dump[acc.remote]) rType = dump[acc.remote].type;
+  } catch (e) {}
 
-  // Tự động tạo thư mục đích trên NAS trước khi chạy rclone (fix: DSM không thấy folder mới)
+  const cmd = buildRcloneCmd(acc, mode, rType);
+
+  // Tự động tạo thư mục đích trên NAS trước khi chạy rclone
   const destToCreate = (acc.destPath || '/data/backups').replace(/\\/g, '/');
   try { fs.mkdirSync(destToCreate, { recursive: true }); } catch(e) {}
-  if (acc.yearFolder) {
-    try { fs.mkdirSync(path.posix.join(destToCreate, new Date().getFullYear().toString()), { recursive: true }); } catch(e) {}
-  }
 
   // Ghi log báo hiệu cho Web App
   try {
@@ -169,8 +178,15 @@ async function runBgJob(acc, mode='sync') {
 app.get('/health', (req,res)=> res.json({ok:true}));
 
 // API
-app.get('/api/config', (req,res)=>{
+app.get('/api/config', async (req,res)=>{
   const cfg = listAccounts();
+  try {
+    const { stdout } = await execPromise('rclone config dump --config=/config/rclone.conf');
+    const dump = JSON.parse(stdout);
+    for (const a of cfg.accounts) {
+       a.providerType = dump[a.remote] ? dump[a.remote].type : 'unknown';
+    }
+  } catch(e) {}
   res.json({ accounts: cfg.accounts, globalMinGB: cfg.globalMinGB, schedule: ensureFile(SCHEDULE_FILE, { entries: [] }) });
 });
 app.get('/api/rclone-remotes', async (req,res)=>{
@@ -185,7 +201,7 @@ app.get('/api/rclone-remotes', async (req,res)=>{
 app.post('/api/accounts', (req,res)=>{
   const { name, remote, destPath, yearFolder, cryptRemote, cryptPath, maxQuotaGB } = req.body || {};
   if(!name || !remote || !destPath) return res.status(400).json({ ok:false, msg:'name, remote, destPath là bắt buộc' });
-  const acc = { name, remote, destPath, yearFolder: !!yearFolder, cryptRemote: cryptRemote||'', cryptPath: cryptPath||'', maxQuotaGB: parseFloat(maxQuotaGB)||0 };
+  const acc = { name, remote, destPath, cryptRemote: cryptRemote||'', cryptPath: cryptPath||'', maxQuotaGB: parseFloat(maxQuotaGB)||0 };
   const data = upsertAccount(acc);
   res.json({ ok:true, accounts: data.accounts });
 });
@@ -381,7 +397,14 @@ app.get('/api/remote-size', async (req,res) => {
    const accIndex = cfg.accounts.findIndex(a => a.name === account);
    if (accIndex < 0) return res.status(404).json({ ok:false, msg:'Không tìm thấy account' });
    try {
-      const src = `${cfg.accounts[accIndex].remote}:media/all`;
+      let src = `${cfg.accounts[accIndex].remote}:`;
+      try {
+         const { stdout: dumpOut } = await execPromise('rclone config dump --config=/config/rclone.conf');
+         const dump = JSON.parse(dumpOut);
+         if (dump[cfg.accounts[accIndex].remote] && dump[cfg.accounts[accIndex].remote].type === 'google photos') {
+            src = `${cfg.accounts[accIndex].remote}:media/all`;
+         }
+      } catch (e) {}
       const { stdout } = await execPromise(`rclone size "${src}" --config=/config/rclone.conf --json`);
       const data = JSON.parse(stdout);
       const gb = (data.bytes / (1024*1024*1024)).toFixed(2);
@@ -404,25 +427,35 @@ app.get('/api/rclone-ls', async (req,res) => {
   
   let debugLog = [];
   try {
-     // 1. Thử quét media/all (Tiêu chuẩn)
-     debugLog.push("--- Thử quét media/all ---");
+     let rType = 'unknown';
      try {
-       const { stdout } = await execPromise(`rclone lsf "${acc.remote}:media/all" --config=/config/rclone.conf --max-depth 1 --gphotos-read-only`);
-       if(stdout.trim()) return res.json({ ok:true, source:'media/all', files: stdout.split('\n').filter(Boolean) });
-       debugLog.push("media/all rỗng.");
-     } catch(e) { debugLog.push("media/all lỗi: " + e.message); }
+       const { stdout: dumpOut } = await execPromise('rclone config dump --config=/config/rclone.conf');
+       const dump = JSON.parse(dumpOut);
+       if (dump[acc.remote]) rType = dump[acc.remote].type;
+     } catch (e) {}
 
-     // 2. Thử quét media (Root của ảnh)
-     debugLog.push("--- Thử quét media ---");
-     try {
-       const { stdout } = await execPromise(`rclone lsf "${acc.remote}:media" --config=/config/rclone.conf --max-depth 1 --gphotos-read-only`);
-       if(stdout.trim()) return res.json({ ok:true, source:'media', files: stdout.split('\n').filter(Boolean) });
-       debugLog.push("media rỗng.");
-     } catch(e) { debugLog.push("media lỗi: " + e.message); }
+     if (rType === 'google photos') {
+       // 1. Thử quét media/all (Tiêu chuẩn)
+       debugLog.push("--- Thử quét media/all ---");
+       try {
+         const { stdout } = await execPromise(`rclone lsf "${acc.remote}:media/all" --config=/config/rclone.conf --max-depth 1 --gphotos-read-only`);
+         if(stdout.trim()) return res.json({ ok:true, source:'media/all', files: stdout.split('\n').filter(Boolean) });
+         debugLog.push("media/all rỗng.");
+       } catch(e) { debugLog.push("media/all lỗi: " + e.message); }
+  
+       // 2. Thử quét media (Root của ảnh)
+       debugLog.push("--- Thử quét media ---");
+       try {
+         const { stdout } = await execPromise(`rclone lsf "${acc.remote}:media" --config=/config/rclone.conf --max-depth 1 --gphotos-read-only`);
+         if(stdout.trim()) return res.json({ ok:true, source:'media', files: stdout.split('\n').filter(Boolean) });
+         debugLog.push("media rỗng.");
+       } catch(e) { debugLog.push("media lỗi: " + e.message); }
+     }
 
      // 3. Quét Root (:) để xem cấu trúc
      debugLog.push("--- Quét cấu trúc gốc (root) ---");
-     const { stdout: rootList } = await execPromise(`rclone lsf "${acc.remote}:" --config=/config/rclone.conf --max-depth 1 --gphotos-read-only`);
+     const rootFlags = rType === 'google photos' ? '--gphotos-read-only' : '';
+     const { stdout: rootList } = await execPromise(`rclone lsf "${acc.remote}:" --config=/config/rclone.conf --max-depth 1 ${rootFlags}`);
      res.json({ ok:true, source:'root', files: rootList.split('\n').filter(Boolean), debug: debugLog.join('\n') });
 
   } catch(e) {

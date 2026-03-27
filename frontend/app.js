@@ -36,18 +36,17 @@ async function tab(name){ const v = document.getElementById('view');
     }).catch(e=>{});
     
     v.innerHTML = `
-<section>
-  <h2>Cấu hình chung (Global NAS Protection)</h2>
-  <div class="small">Nếu dung lượng trống trên NAS rớt xuống dưới mốc này, toàn bộ tiến trình rclone sẽ chặn khởi chạy hoặc tự động ép ngưng.</div>
-  <label>Ngưỡng dung lượng trống tối thiểu (GB)</label>
-  <input id="global_min_gb" value="${cfg.globalMinGB!==undefined?cfg.globalMinGB:5}" type="number" step="0.5"/>
-  <button onclick="saveGlobalConfig()">Lưu cấu hình Global</button>
-</section>
-<section>
-  <h2>Quản lý Accounts</h2>
-  <div class="flex">
-    <div class="w50">
-      <h3>Thêm / Sửa account</h3>
+<div class="flex">
+  <div class="w50" style="padding-right:10px;">
+    <section>
+      <h2>Cấu hình chung (Global NAS Protection)</h2>
+      <div class="small">Nếu dung lượng trống trên NAS rớt xuống dưới mốc này, rclone sẽ chặn khởi chạy.</div>
+      <label>Ngưỡng dung lượng trống tối thiểu (GB)</label>
+      <input id="global_min_gb" value="${cfg.globalMinGB!==undefined?cfg.globalMinGB:5}" type="number" step="0.5"/>
+      <button onclick="saveGlobalConfig()">Lưu cấu hình Global</button>
+    </section>
+    <section>
+      <h2>Quản lý Accounts - Thêm / Sửa</h2>
       <button onclick="newAccount()" style="font-size:12px;margin-bottom:10px;background:#334155">+ Bắt đầu nhập Account mới</button>
       <label>Tên account</label>
       <input id="acc_name" placeholder="vd: family" />
@@ -59,7 +58,6 @@ async function tab(name){ const v = document.getElementById('view');
       <input id="acc_dest" placeholder="vd: /data/family" />
       <label>Hạn mức Quota cho thư mục này (GB) - Nhập 0 để Unlimit</label>
       <input id="acc_quota" placeholder="vd: 50" type="number" step="1" value="0"/>
-      <label><input type="checkbox" id="acc_year" /> Tạo thư mục theo năm (…/YYYY)</label>
       <details>
         <summary>Tùy chọn: Mã hoá (Crypt)</summary>
         <div class="small">Bạn cần tạo Crypt remote trong Rclone Web GUI (:5573) trước.</div>
@@ -69,21 +67,36 @@ async function tab(name){ const v = document.getElementById('view');
         <input id="acc_crypt_path" placeholder="vd: /gphotos" />
       </details>
       <button id="btn_save_acc" onclick="saveAccount()">Lưu account mới</button>
-    </div>
-    <div class="w50">
-      <h3>Danh sách</h3>
-      <table class="table"><thead><tr><th>Account</th><th>Remote</th><th>Dest</th><th>Quota</th><th>Size Mây</th><th>Hành động</th></tr></thead>
-      <tbody id="acc_rows"></tbody></table>
-      <div id="quota_warning" style="margin-top:15px; font-size:13px; color:#555;"></div>
-    </div>
+    </section>
   </div>
-</section>`; 
+  <div class="w50" style="padding-left:10px;">
+    <section style="height:calc(100% - 40px);">
+      <h2>Danh sách Accounts</h2>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Account</th>
+            <th>Loại</th>
+            <th>Remote</th>
+            <th>Dest</th>
+            <th>Quota</th>
+            <th>Size Mây</th>
+            <th>Hành động</th>
+          </tr>
+        </thead>
+        <tbody id="acc_rows"></tbody>
+      </table>
+      <div id="quota_warning" style="margin-top:15px; font-size:13px; color:#555;"></div>
+    </section>
+  </div>
+</div>`; 
 window._lastCfg = cfg;
 const sumQuota = (cfg.accounts||[]).reduce((sum, a) => sum + (parseFloat(a.maxQuotaGB)||0), 0);
 const sumUsed = (cfg.accounts||[]).reduce((sum, a) => sum + (parseFloat(a.lastSizeGB)||0), 0);
 
 document.getElementById('acc_rows').innerHTML = (cfg.accounts||[]).map(a=>`<tr>
   <td>${a.name}</td>
+  <td style="font-size:12px;color:#a78bfa">${a.providerType || 'N/A'}</td>
   <td>${a.remote}</td>
   <td class="mono">${a.destPath}</td>
   <td>${a.maxQuotaGB?a.maxQuotaGB+'GB':'∞'}</td>
@@ -396,7 +409,7 @@ async function saveGlobalConfig() {
   }
 }
 
-async function saveAccount(){ const body = { name: acc_name.value.trim(), remote: acc_remote.value.trim(), destPath: acc_dest.value.trim(), yearFolder: acc_year.checked, maxQuotaGB: acc_quota.value||0, cryptRemote: acc_crypt_remote.value.trim(), cryptPath: acc_crypt_path.value.trim() }; if(!body.name||!body.remote||!body.destPath){ alert('Thiếu tên/remote/thư mục đích'); return; } await reqJSON('/api/accounts',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)}); tab('accounts'); }
+async function saveAccount(){ const body = { name: acc_name.value.trim(), remote: acc_remote.value.trim(), destPath: acc_dest.value.trim(), maxQuotaGB: acc_quota.value||0, cryptRemote: acc_crypt_remote.value.trim(), cryptPath: acc_crypt_path.value.trim() }; if(!body.name||!body.remote||!body.destPath){ alert('Thiếu tên/remote/thư mục đích'); return; } await reqJSON('/api/accounts',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)}); tab('accounts'); }
 async function delAccount(n){ if(!confirm('Xoá account '+n+'?')) return; await reqJSON('/api/accounts/'+encodeURIComponent(n), { method:'DELETE' }); tab('accounts'); }
 async function estimateRemoteSize(name, event) { 
   const btn = event ? event.target : null;
@@ -428,7 +441,6 @@ function editAccount(n) {
 
   document.getElementById('acc_dest').value = a.destPath;
   document.getElementById('acc_quota').value = a.maxQuotaGB || 0;
-  document.getElementById('acc_year').checked = !!a.yearFolder;
   document.getElementById('acc_crypt_remote').value = a.cryptRemote || '';
   document.getElementById('acc_crypt_path').value = a.cryptPath || '';
   
