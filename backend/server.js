@@ -1,6 +1,6 @@
 /**
- * gphotos-backup-advanced - v2.7
- * v2.7: Proxy route /rclone-oauth/* — forward browser → rclone:53682 nội bộ qua port 5572
+ * gphotos-backup-advanced - v2.8
+ * v2.8: Multi-remote setup — Google Drive, OneDrive Personal/Business support
  */
 const express = require('express');
 const fs = require('fs');
@@ -230,13 +230,13 @@ app.get('/api/restore', (req,res)=>{
 });
 app.get('/api/rclone-url', (req,res)=> res.json({ url: `${req.protocol}://${req.hostname}:5573` }));
 app.get('/api/version', async (req,res) => {
-  let v = "v2.9";
+  let v = "v2.10";
   try {
     const st = fs.statSync(__filename);
     const dateStr = new Date(st.mtimeMs).toLocaleString('en-GB', { timeZone: 'Asia/Ho_Chi_Minh' });
     const { stdout: rv } = await execPromise('rclone version');
     const rvShort = rv.split('\n')[0];
-    v = `[App v2.9 - ${dateStr} GMT+7] | [${rvShort}]`;
+    v = `[App v2.10 - ${dateStr} GMT+7] | [${rvShort}]`;
   } catch(e){}
   res.json({ version: v });
 });
@@ -250,22 +250,25 @@ if (!global.rcloneAuthState) {
 }
 
 // Khởi động tiến trình rclone authorize, stream output vào global state
+// remoteType: 'googledrive' | 'google photos' | 'onedrive'
 app.post('/api/rclone-authorize', (req, res) => {
-  const { remoteName, readOnly } = req.body || {};
+  const { remoteName, remoteType, readOnly } = req.body || {};
   if (!remoteName) return res.status(400).json({ ok: false, msg: 'Thiếu remoteName' });
+
+  const type = remoteType || 'googledrive';
 
   // Kill phiên cũ nếu còn
   try { if (global.rcloneAuthChild) global.rcloneAuthChild.kill(); } catch(e) {}
 
-  global.rcloneAuthState = { status: 'running', output: '$ rclone authorize "google photos" (forced scopes via ENV)\n', remoteName, readOnly: !!readOnly };
+  global.rcloneAuthState = { status: 'running', output: `$ rclone authorize "${type}" --auth-no-open-browser\n`, remoteName, remoteType: type, readOnly: !!readOnly };
 
-  const authEnv = { 
-    ...process.env, 
-    RCLONE_GPHOTOS_READ_ONLY: 'true',
-    RCLONE_GPHOTOS_SCOPES: 'https://www.googleapis.com/auth/photoslibrary.readonly'
-  };
+  // Build env theo loại remote
+  const authEnv = { ...process.env };
+  if (type === 'google photos') {
+    authEnv.RCLONE_GPHOTOS_READ_ONLY = readOnly ? 'true' : 'false';
+  }
 
-  const child = spawn('rclone', ['authorize', 'google photos', '--auth-no-open-browser', '--config=/config/rclone.conf'], { 
+  const child = spawn('rclone', ['authorize', type, '--auth-no-open-browser', '--config=/config/rclone.conf'], { 
     shell: false,
     env: authEnv
   });
@@ -302,11 +305,15 @@ app.post('/api/rclone-auth-reset', (req, res) => {
   res.json({ ok: true });
 });
 
-// Ghi remote v\u00e0o rclone.conf tr\u1ef1c ti\u1ebfp (kh\u00f4ng d\u00f9ng CLI \u2192 tr\u00e1nh shell escaping)
-function writeRcloneRemoteToConf(remoteName, tokenStr, readOnly) {
+// Ghi remote vào rclone.conf trực tiếp (không dùng CLI → tránh shell escaping)
+// remoteType: 'googledrive' | 'google photos' | 'onedrive'
+// driveType (OneDrive only): 'personal' | 'business'
+function writeRcloneRemoteToConf(remoteName, tokenStr, remoteType, options) {
   const confPath = '/config/rclone.conf';
   const tokenObj = JSON.parse(tokenStr); // validate JSON
   const tokenLine = JSON.stringify(tokenObj); // normalize
+  const type = remoteType || 'googledrive';
+  const opts = options || {};
 
   let conf = '';
   if (fs.existsSync(confPath)) {
@@ -323,26 +330,43 @@ function writeRcloneRemoteToConf(remoteName, tokenStr, readOnly) {
     conf = out.join('\n').trimEnd();
   }
 
-  // Append section mới
-  const section = `\n\n[${remoteName}]\ntype = google photos\ntoken = ${tokenLine}\nread_only = ${readOnly ? 'true' : 'false'}\n`;
+  // Build section theo loại remote
+  const sectionLines = [`\n\n[${remoteName}]`];
+  if (type === 'google photos') {
+    sectionLines.push(`type = google photos`);
+    sectionLines.push(`token = ${tokenLine}`);
+    sectionLines.push(`read_only = ${opts.readOnly ? 'true' : 'false'}`);
+  } else if (type === 'googledrive') {
+    sectionLines.push(`type = drive`);
+    sectionLines.push(`scope = drive.readonly`);
+    sectionLines.push(`token = ${tokenLine}`);
+  } else if (type === 'onedrive') {
+    sectionLines.push(`type = onedrive`);
+    sectionLines.push(`token = ${tokenLine}`);
+    // drive_type: personal | business
+    sectionLines.push(`drive_type = ${opts.driveType || 'personal'}`);
+    if (opts.driveId) sectionLines.push(`drive_id = ${opts.driveId}`);
+  }
+
+  const section = sectionLines.join('\n') + '\n';
   fs.writeFileSync(confPath, conf + section, 'utf8');
 }
 
 app.post('/api/rclone-token-import', (req, res) => {
-  const { remoteName, token, readOnly } = req.body || {};
-  if (!remoteName || !token) return res.status(400).json({ ok: false, msg: 'Thi\u1ebfu remoteName ho\u1eb7c token' });
+  const { remoteName, token, remoteType, readOnly, driveType, driveId } = req.body || {};
+  if (!remoteName || !token) return res.status(400).json({ ok: false, msg: 'Thiếu remoteName hoặc token' });
   
-  // Kill rclone auth process c\u0169 (gi\u1ea3i ph\u00f3ng port 53682)
+  // Kill rclone auth process cũ (giải phóng port 53682)
   try { if (global.rcloneAuthChild) { global.rcloneAuthChild.kill('SIGKILL'); global.rcloneAuthChild = null; } } catch(e) {}
   
   try {
-    writeRcloneRemoteToConf(remoteName, token, readOnly);
-    res.json({ ok: true, msg: `\u2705 Remote "${remoteName}" \u0111\u00e3 \u0111\u01b0\u1ee3c t\u1ea1o th\u00e0nh c\u00f4ng! V\u00e0o tab Accounts \u0111\u1ec3 s\u1eed d\u1ee5ng.` });
+    writeRcloneRemoteToConf(remoteName, token, remoteType || global.rcloneAuthState?.remoteType || 'googledrive', { readOnly, driveType, driveId });
+    const label = remoteType === 'onedrive' ? 'OneDrive' : remoteType === 'google photos' ? 'Google Photos' : 'Google Drive';
+    res.json({ ok: true, msg: `✅ Remote "${remoteName}" (${label}) đã được tạo thành công! Vào tab Accounts để sử dụng.` });
   } catch(e) {
     res.status(500).json({ ok: false, msg: e.message });
   }
 });
-
 
 app.post('/api/settings', (req, res) => {
   const cfg = listAccounts();

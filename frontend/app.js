@@ -1,6 +1,6 @@
 /**
- * gphotos-backup-advanced - v2.6
- * Tính năng mới (v2.6): Tab Setup Google OAuth - hướng dẫn kết nối Google Photos trong Docker
+ * gphotos-backup-advanced - v2.8
+ * v2.8: Multi-remote — Google Drive, OneDrive Personal/Business
  */
 async function reqJSON(url, opts){ const r = await fetch(url, opts); if(!r.ok) throw new Error(await r.text()); return r.json(); }
 async function init(){ 
@@ -51,7 +51,7 @@ async function tab(name){ const v = document.getElementById('view');
       <button onclick="newAccount()" style="font-size:12px;margin-bottom:10px;background:#334155">+ Bắt đầu nhập Account mới</button>
       <label>Tên account</label>
       <input id="acc_name" placeholder="vd: family" />
-      <label>Rclone Remote (Google Photos)</label>
+      <label>Rclone Remote</label>
       <select id="acc_remote" onchange="document.getElementById('acc_dest').value = this.value ? '/data/' + this.value : ''">
         <option value="">-- Xin chờ tải danh sách... --</option>
       </select>
@@ -136,24 +136,47 @@ if(warnDiv) {
   }
   if(name==='setup'){
     stopAuthPolling();
-    reqJSON('/api/rclone-auth-reset', {method:'POST'}).catch(()=>{}); // Clean log c\u0169 m\u1ed7i l\u1ea7n v\u00e0o tab
+    reqJSON('/api/rclone-auth-reset', {method:'POST'}).catch(()=>{});
     v.innerHTML = `
-<section style="background:#0d1f0d;border-color:#166534;padding:16px 20px">
-  <h2 style="color:#4ade80;margin-top:0">🔐 Kết nối Google Photos</h2>
-  <div class="small" style="color:#86ac;line-height:1.8">
-    1. Nhập tên remote rồi bấm <b>▶ Chạy rclone authorize</b>.<br>
-    2. Terminal hiện link — bấm link đó, đăng nhập Google, bấm Allow.<br>
-    3. Trình duyệt sẽ báo lỗi <b>mạng "127.0.0.1 refused to connect"</b> (do rclone chạy ẩn). Đừng lo!<br>
-    4. <b>Copy nguyên cái link đang báo lỗi đó</b> (dài ngoằng) và dán vào ô Bước 2 để app tự lấy token ngầm.
+<section style="background:#0d1421;border-color:#1e3a5f;padding:20px">
+  <h2 style="color:#60a5fa;margin-top:0">🔌 Kết nối Cloud Storage</h2>
+  <div class="small" style="color:#94a3b8;margin-bottom:18px">Chọn dịch vụ muốn thêm. Mỗi dịch vụ dùng OAuth — bạn chỉ cần đăng nhập và bấm Allow.</div>
+  <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:6px">
+    <div id="card_gdrive" onclick="selectProvider('googledrive')" style="cursor:pointer;border:2px solid #1e3a5f;border-radius:12px;padding:18px 22px;min-width:150px;flex:1;text-align:center;transition:all .2s">
+      <div style="font-size:32px">📂</div>
+      <div style="color:#60a5fa;font-weight:700;font-size:15px;margin-top:6px">Google Drive</div>
+      <div style="color:#64748b;font-size:12px;margin-top:4px">Tất cả file trên Drive</div>
+    </div>
+    <div id="card_od_personal" onclick="selectProvider('onedrive_personal')" style="cursor:pointer;border:2px solid #1e3a5f;border-radius:12px;padding:18px 22px;min-width:150px;flex:1;text-align:center;transition:all .2s">
+      <div style="font-size:32px">🪟</div>
+      <div style="color:#38bdf8;font-weight:700;font-size:15px;margin-top:6px">OneDrive Personal</div>
+      <div style="color:#64748b;font-size:12px;margin-top:4px">Tài khoản cá nhân</div>
+    </div>
+    <div id="card_od_business" onclick="selectProvider('onedrive_business')" style="cursor:pointer;border:2px solid #1e3a5f;border-radius:12px;padding:18px 22px;min-width:150px;flex:1;text-align:center;transition:all .2s">
+      <div style="font-size:32px">🏢</div>
+      <div style="color:#a78bfa;font-weight:700;font-size:15px;margin-top:6px">OneDrive Business</div>
+      <div style="color:#64748b;font-size:12px;margin-top:4px">Microsoft 365 / Work</div>
+    </div>
+    <div id="card_gphotos" onclick="selectProvider('gphotos')" style="cursor:pointer;border:2px solid #1e3a5f;border-radius:12px;padding:18px 22px;min-width:150px;flex:1;text-align:center;transition:all .2s">
+      <div style="font-size:32px">🖼️</div>
+      <div style="color:#4ade80;font-weight:700;font-size:15px;margin-top:6px">Google Photos</div>
+      <div style="color:#64748b;font-size:12px;margin-top:4px">Chỉ ảnh do rclone upload</div>
+    </div>
   </div>
 </section>
+<div id="setup_flow" style="display:none">
 <section>
   <h2>⚡ Bước 1 — Chạy Auth</h2>
-  <label>Tên Remote <span style="color:#94a3b8;font-size:12px">(vd: family_photos)</span></label>
-  <input id="setup_remote_name" placeholder="vd: family_photos" style="max-width:300px"/>
-  <label style="margin-top:8px"><input type="checkbox" id="setup_readonly" checked> Read Only (khuyến nghị khi chỉ backup)</label>
+  <div id="setup_provider_label" style="margin-bottom:10px;font-size:13px;color:#94a3b8"></div>
+  <label>Tên Remote <span style="color:#94a3b8;font-size:12px">(vd: gdrive_backup)</span></label>
+  <input id="setup_remote_name" placeholder="vd: gdrive_backup" style="max-width:300px"/>
+  <div id="setup_od_business_extra" style="display:none;margin-top:10px;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px">
+    <div style="color:#fde68a;font-size:12px;margin-bottom:8px">⚠️ OneDrive Business: Drive ID thường để trống — rclone tự detect. Chỉ nhập nếu cần chỉ định SharePoint cụ thể.</div>
+    <label>Drive ID <span style="color:#64748b;font-size:11px">(tuỳ chọn — thường để trống)</span></label>
+    <input id="setup_drive_id" placeholder="tự động nếu để trống" style="max-width:360px"/>
+  </div>
   <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-    <button onclick="startRcloneTerminal()" id="btn_run_rclone" style="font-size:15px;padding:10px 20px;background:#16a34a;color:#fff">▶ Chạy rclone authorize</button>
+    <button onclick="startRcloneTerminal()" id="btn_run_rclone" style="font-size:15px;padding:10px 20px;background:#2563eb;color:#fff">▶ Chạy rclone authorize</button>
     <button onclick="resetRcloneTerminal()" style="background:#334155;color:#cbd5e1">↺ Reset</button>
   </div>
 </section>
@@ -164,17 +187,17 @@ if(warnDiv) {
 </section>
 <section>
   <h2>🔗 Bước 2 — Dán Link báo lỗi để hoàn tất</h2>
-  <div class="small" style="color:#fde68a;margin-bottom:10px">Sau khi bấm Allow trên Google, bạn sẽ bị kẹt ở trang báo lỗi (127.0.0.1 refused). Nhấn lên thanh địa chỉ trình duyệt, copy toàn bộ URL đó dán vào đây:</div>
-  <input id="setup_redirect_url" placeholder="http://127.0.0.1:53682/?state=T8ZWGC...&code=4/0Aci..." style="width:100%;max-width:none"/>
-  <button onclick="submitRedirectUrl()" id="btn_submit_url" style="margin-top:8px;background:#2563eb;color:#fff;font-size:14px;padding:9px 18px">🚀 Nhận Token & Tạo Remote Tự Động</button>
-  
+  <div class="small" style="color:#fde68a;margin-bottom:10px">Sau khi bấm Allow, bạn sẽ bị kẹt ở trang báo lỗi (127.0.0.1 refused). Copy toàn bộ URL đó dán vào đây:</div>
+  <input id="setup_redirect_url" placeholder="http://127.0.0.1:53682/?state=...&code=..." style="width:100%;max-width:none"/>
+  <button onclick="submitRedirectUrl()" id="btn_submit_url" style="margin-top:8px;background:#2563eb;color:#fff;font-size:14px;padding:9px 18px">🚀 Nhận Token &amp; Tạo Remote Tự Động</button>
   <details style="margin-top:16px">
     <summary style="cursor:pointer;color:#94a3b8;font-size:13px">🛠 Hoặc tự dán Token JSON (nếu muốn)</summary>
     <textarea id="setup_token" rows="4" style="width:100%;margin-top:8px;padding:8px;border-radius:6px;border:1px solid #334155;background:#0b1220;color:#e6eefc;font-family:monospace;font-size:12px;box-sizing:border-box" placeholder='{"access_token":"ya29..."}'></textarea>
     <button onclick="importFromTerminal()" style="margin-top:8px">✅ Tạo Remote từ Token JSON</button>
   </details>
   <div id="setup_result" style="margin-top:10px"></div>
-</section>`;
+</section>
+</div>`;
   }
   if(name==='restore'){ v.innerHTML = `
 <section>
@@ -189,19 +212,57 @@ if(warnDiv) {
 let _authPollTimer = null;
 function stopAuthPolling() { if(_authPollTimer){ clearInterval(_authPollTimer); _authPollTimer=null; } }
 
+// -- Provider Selection --
+let currentRemoteType = 'googledrive';
+let currentDriveType = 'personal';
+
+function selectProvider(provider) {
+  // Reset card styles
+  ['card_gdrive','card_od_personal','card_od_business','card_gphotos'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.borderColor = '#1e3a5f';
+  });
+  const cardMap = { googledrive:'card_gdrive', onedrive_personal:'card_od_personal', onedrive_business:'card_od_business', gphotos:'card_gphotos' };
+  const activeCard = document.getElementById(cardMap[provider]);
+  if (activeCard) activeCard.style.borderColor = '#60a5fa';
+
+  const labelEl = document.getElementById('setup_provider_label');
+  const extraEl = document.getElementById('setup_od_business_extra');
+  const flowEl = document.getElementById('setup_flow');
+  if (flowEl) flowEl.style.display = '';
+
+  if (provider === 'googledrive') {
+    currentRemoteType = 'googledrive'; currentDriveType = null;
+    if (labelEl) labelEl.innerHTML = '<span style="color:#60a5fa">📂 Google Drive</span> — Sẽ yêu cầu quyền đọc file trên Drive';
+    if (extraEl) extraEl.style.display = 'none';
+  } else if (provider === 'onedrive_personal') {
+    currentRemoteType = 'onedrive'; currentDriveType = 'personal';
+    if (labelEl) labelEl.innerHTML = '<span style="color:#38bdf8">🪟 OneDrive Personal</span> — Tài khoản Microsoft cá nhân';
+    if (extraEl) extraEl.style.display = 'none';
+  } else if (provider === 'onedrive_business') {
+    currentRemoteType = 'onedrive'; currentDriveType = 'business';
+    if (labelEl) labelEl.innerHTML = '<span style="color:#a78bfa">🏢 OneDrive Business</span> — Microsoft 365 / Work account';
+    if (extraEl) extraEl.style.display = '';
+  } else if (provider === 'gphotos') {
+    currentRemoteType = 'google photos'; currentDriveType = null;
+    if (labelEl) labelEl.innerHTML = '<span style="color:#4ade80">🖼️ Google Photos</span> — Chỉ backup ảnh do rclone upload (giới hạn API từ 31/3/2025)';
+    if (extraEl) extraEl.style.display = 'none';
+  }
+}
+
 async function startRcloneTerminal() {
   const remoteName = (document.getElementById('setup_remote_name')||{}).value?.trim();
   if (!remoteName) { alert('Vui lòng nhập tên remote!'); return; }
-  const readOnly = (document.getElementById('setup_readonly')||{}).checked !== false;
+  const remoteType = currentRemoteType || 'googledrive';
   const btn = document.getElementById('btn_run_rclone');
   const term = document.getElementById('rclone_terminal');
   btn.disabled = true; btn.textContent = '⏳ Đang chạy...';
-  if(term) term.textContent = '$ rclone authorize "google photos" --auth-no-open-browser\n';
+  if(term) term.textContent = `$ rclone authorize "${remoteType}" --auth-no-open-browser\n`;
   // Reset server state
   try { await reqJSON('/api/rclone-auth-reset', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' }); } catch(e) {}
   // Spawn rclone
   try {
-    await reqJSON('/api/rclone-authorize', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ remoteName, readOnly }) });
+    await reqJSON('/api/rclone-authorize', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ remoteName, remoteType, readOnly: true }) });
   } catch(e) {
     if(term) term.textContent += '\n[LỖI kết nối: ' + e.message + ']';
     btn.disabled = false; btn.textContent = '▶ Chạy lại';
@@ -226,7 +287,7 @@ function startTerminalPolling() {
         .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" style="color:#60a5fa;text-decoration:underline">$1</a>');
       term.scrollTop = term.scrollHeight;
       
-      // Tư\u0323 \u0111\u00f4\u0323ng parse Token b\u1eb1ng Marker \u0111\u1ec3 ch\u1ed1t ch\u1eb7n 100% token c\u1ee7a rclone, k\u1ec3 c\u1ea3 c\u00f3 xu\u1ed1ng d\u00f2ng hay n\u1ed9i dung d\u01b0 th\u1eeba!
+      // Tự động parse Token bằng Marker để chốt chặn 100% token của rclone, kể cả có xuống dòng hay nội dung dư thừa!
       let tokenMatch = null;
       let pasteMatch = j.output.match(/--->\s*(\{.*?\})\s*<---/s);
       if (pasteMatch && pasteMatch[1]) {
@@ -235,7 +296,7 @@ function startTerminalPolling() {
              if (p && p.access_token) { tokenMatch = JSON.stringify(p); }
           } catch(e) {}
       } else {
-          // D\u1ef1 ph\u00f2ng khi kh\u00f4ng c\u00f3 marker: t\u00ecm Json ph\u1eb3ng
+          // Dự phòng khi không có marker: tìm Json phẳng
           for (const t of j.output.match(/\{[^}]+\}/g) || []) {
              try { const p = JSON.parse(t); if (p && p.access_token) { tokenMatch = JSON.stringify(p); break; } } catch(e) {}
           }
@@ -243,9 +304,9 @@ function startTerminalPolling() {
 
       if (tokenMatch) {
         stopAuthPolling();
-        term.innerHTML += '\n<span style="color:#4ade80">[T\u1ef1 \u0111\u1ed9ng] Đã tìm thấy mã Token JSON hợp lệ! Đang lưu config...</span>';
+        term.innerHTML += '\n<span style="color:#4ade80">[Tự động] Đã tìm thấy mã Token JSON hợp lệ! Đang lưu config...</span>';
         document.getElementById('setup_token').value = tokenMatch;
-        await importFromTerminal(); // T\u1ef1 \u0111\u1ed9ng t\u1ea1o
+        await importFromTerminal(); // Tự động tạo
       }
       else if (j.status === 'done' || j.status === 'error') {
         stopAuthPolling();
@@ -257,31 +318,31 @@ function startTerminalPolling() {
 async function submitRedirectUrl() {
   const input = document.getElementById('setup_redirect_url').value.trim();
   const res = document.getElementById('setup_result');
-  if (!input) { res.innerHTML = '<div style="color:orange">\u26a0\ufe0f Hãy dán URL đang bị lỗi vào đây.</div>'; return; }
+  if (!input) { res.innerHTML = '<div style="color:orange">⚠️ Hãy dán URL đang bị lỗi vào đây.</div>'; return; }
   
   if (!input.includes('state=') || !input.includes('code=')) {
-    res.innerHTML = '<div style="color:#f87171">\u274c URL không hợp lệ. Hãy đảm bảo copy nguyên cái URL trên thanh địa chỉ có chứa "state=" và "code="</div>';
+    res.innerHTML = '<div style="color:#f87171">❌ URL không hợp lệ. Hãy đảm bảo copy nguyên cái URL trên thanh địa chỉ có chứa "state=" và "code="</div>';
     return;
   }
   
-  // Tr\u00edch xu\u1ea5t \u0111o\u1ea1n tham s\u1ed1 sau d\u1ea5u ?
+  // Trích xuất đoạn tham số sau dấu ?
   try {
     const urlObj = new URL(input.startsWith('http') ? input : 'http://localhost/' + input);
     const searchParams = urlObj.search;
     
-    // B\u1eafn ng\u1ea7m fetch URL \u0111\u00f3 qua proxy local (s\u1eed d\u1ee5ng \u0111\u00fang g\u1ed1c path m\u00e0 user \u0111\u00e3 copy \u0111\u1ec3 truy\u1ec1n qua rclone, kh\u00f4ng fix t\u1ee9ng url /)
-    const exactPath = urlObj.pathname + urlObj.search; // th\u01b0\u1eddng gi\u00e1 tr\u1ecb n\u00e0y l\u00e0 s\u1ebd l\u00e0: /?state=XYZ&...
-    res.innerHTML = '<div style="color:#60a5fa">\u23f3 Đang gửi mã xác thực cho rclone... Vui lòng đợi 1 chút để xem k\u1ebft qu\u1ea3 (nh\u00ecn bi\u1ebfn log tr\u00ean terminal \u0111en).</div>';
+    // Bắn ngầm fetch URL đó qua proxy local (sử dụng đúng gốc path mà user đã copy để truyền qua rclone, không fix từng url /)
+    const exactPath = urlObj.pathname + urlObj.search; // thường giá trị này là sẽ là: /?state=XYZ&...
+    res.innerHTML = '<div style="color:#60a5fa">⏳ Đang gửi mã xác thực cho rclone... Vui lòng đợi 1 chút để xem kết quả (nhìn biến log trên terminal đen).</div>';
     fetch('/rclone-oauth' + exactPath)
       .then(async (r) => {
-        if (!r.ok) { res.innerHTML = `<div style="color:#f87171">\u274c Lỗi t\u1eeb server backend: HTTP ${r.status} - ${await r.text()}</div>`; }
-        else { res.innerHTML += '<div style="color:#fde047">\u21aa Đã báo thành công tới rclone! Đang ch\u1edd terminal b\u1eaft \u0111\u01b0\u1ee3c token json \u0111\u1ec3 l\u01b0u...</div>'; }
+        if (!r.ok) { res.innerHTML = `<div style="color:#f87171">❌ Lỗi từ server backend: HTTP ${r.status} - ${await r.text()}</div>`; }
+        else { res.innerHTML += '<div style="color:#fde047">↪ Đã báo thành công tới rclone! Đang chờ terminal bắt được token json để lưu...</div>'; }
       })
       .catch((e)=>{
-        res.innerHTML = '<div style="color:#f87171">\u274c Mất kết nối tới NAS (fetch fail): ' + e.message + '</div>';
+        res.innerHTML = '<div style="color:#f87171">❌ Mất kết nối tới NAS (fetch fail): ' + e.message + '</div>';
       });
   } catch (e) {
-    res.innerHTML = '<div style="color:#f87171">\u274c Lỗi xử lý URL: ' + e.message + '</div>';
+    res.innerHTML = '<div style="color:#f87171">❌ Lỗi xử lý URL: ' + e.message + '</div>';
   }
 }
 
@@ -300,14 +361,16 @@ async function resetRcloneTerminal() {
 async function importFromTerminal() {
   const remoteName = (document.getElementById('setup_remote_name')||{}).value?.trim();
   const token = (document.getElementById('setup_token')||{}).value?.trim();
-  const readOnly = (document.getElementById('setup_readonly')||{}).checked !== false;
+  const remoteType = currentRemoteType || 'googledrive';
+  const driveType = currentDriveType || 'personal';
+  const driveId = (document.getElementById('setup_drive_id')||{}).value?.trim() || '';
   const res = document.getElementById('setup_result');
   if (!remoteName) { res.innerHTML = '<div style="color:orange">⚠️ Vui lòng nhập tên remote.</div>'; return; }
   if (!token) { res.innerHTML = '<div style="color:orange">⚠️ Vui lòng paste token JSON.</div>'; return; }
   try { JSON.parse(token); } catch(e) { res.innerHTML = '<div style="color:#f87171">Token JSON không hợp lệ. Hãy copy đúng dòng bắt đầu bằng {</div>'; return; }
   const btn = document.getElementById('btn_import'); if(btn) { btn.disabled = true; btn.textContent = '⏳ Đang tạo...'; }
   try {
-    const j = await reqJSON('/api/rclone-token-import', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({remoteName, token, readOnly}) });
+    const j = await reqJSON('/api/rclone-token-import', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({remoteName, token, remoteType, readOnly: true, driveType, driveId}) });
     res.innerHTML = j.ok ? `<div style="color:#4ade80;font-size:15px">${j.msg}</div>` : `<div style="color:#f87171">LỖI: ${j.msg}</div>`;
     if (j.ok) {
       setTimeout(() => {
@@ -433,13 +496,13 @@ async function runSync(){
 async function checkCloudFiles() {
   const account = sync_acc.value;
   const out = document.getElementById('sync_out');
-  out.textContent = 'Đang quét danh sách file trên mây (GPhotos:media/all)... vui lòng đợi...';
+  out.textContent = 'Đang quét danh sách file trên mây... vui lòng đợi...';
   try {
     const j = await reqJSON('/api/rclone-ls?account='+encodeURIComponent(account));
     if(j.ok) {
       const debugText = j.debug ? `\n\n--- Debug Log ---\n${j.debug}` : '';
       if(j.files.length === 0) {
-        out.innerHTML = `<div style="color:#fbbf24">⚠ Rclone không tìm thấy file nào trong thư mục "media/all"!${debugText ? '<pre style="font-size:11px;color:#94a3b8">'+debugText+'</pre>' : ''}<br><br><b>Nguyên nhân cực kì phổ biến:</b><br>Khi đăng nhập Google, bạn đã <b>QUÊN</b> tích vào ô vuông <b>"Xem thư viện Google Photos của bạn"</b>. Google mặc định không tích ô này, bạn phải tự tay tích vào thì mới có quyền tải ảnh.</div>`;
+        out.innerHTML = `<div style="color:#fbbf24">⚠ Rclone không tìm thấy file nào!${debugText ? '<pre style="font-size:11px;color:#94a3b8">'+debugText+'</pre>' : ''}</div>`;
       } else {
         out.textContent = `[Nguồn: ${j.source}] Tìm thấy ${j.files.length} file:\n` + j.files.slice(0, 50).join('\n') + (j.files.length > 50 ? '\n...' : '') + debugText;
       }
