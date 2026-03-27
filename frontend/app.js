@@ -113,18 +113,26 @@ if(warnDiv) {
   warnDiv.innerHTML = `<br><b>Thống kê:</b> Tổng Hạn mức đã cấp: ${sumQuota||0} GB | Tổng mây đã quét: ${sumUsed.toFixed(2)} GB.<br><span style="color:red">${sumQuota > 0 ? '(Lưu ý: Tổng hạn mức nên nhỏ hơn dung lượng trống của NAS)' : ''}</span>`;
 }
 }
-  if(name==='sync'){ const cfg = await reqJSON('/api/config'); v.innerHTML = `
+  if(name==='sync'){ 
+    const cfg = await reqJSON('/api/config'); 
+    window._syncCfg = cfg;
+    v.innerHTML = `
 <section>
   <h2>Sync</h2>
   <label>Chọn account</label>
-  <select id="sync_acc">${(cfg.accounts||[]).map(a=>`<option>${a.name}</option>`).join('')}</select>
-  <label>Chế độ</label>
-  <select id="sync_mode"><option value="sync">sync (khuyến nghị)</option><option value="copy">copy</option></select>
-  <button onclick="runSync()">Chạy ngay</button>
-  <button onclick="checkCloudFiles()" style="background:#475569; margin-left:10px;">Kiểm tra file trên Cloud</button>
-  <h3>Kết quả</h3>
-  <div id="sync_out" class="mono" style="background:#0f172a; color:#f8fafc; padding:15px; border-radius:8px; min-height:100px; white-space:pre-wrap;"></div>
-</section>`; }
+  <select id="sync_acc" onchange="updateSyncInfo()">${(cfg.accounts||[]).map(a=>`<option value="${a.name}">${a.name}</option>`).join('')}</select>
+  
+  <div id="sync_info" style="margin:10px 0; padding:12px; background:#0f172a; border:1px solid #1e3a5f; border-radius:6px; font-size:13px; color:#cbd5e1; display:none;">
+      Loading...
+  </div>
+  
+  <button onclick="runSync()" style="margin-top:10px; background:#2563eb; color:white;">▶ Chạy Sync ngay</button>
+  
+  <h3 style="margin-top:20px;">Kết quả</h3>
+  <div id="sync_out" class="mono" style="background:#0b0f1a; color:#f8fafc; padding:15px; border-radius:8px; min-height:100px; white-space:pre-wrap; border:1px solid #1e3a5f;"></div>
+</section>`; 
+    setTimeout(updateSyncInfo, 50);
+  }
   if(name==='scheduler'){ const j = await reqJSON('/api/config'); const accounts = j.accounts||[]; const sched = j.schedule||{entries:[]}; v.innerHTML = `
 <section>
   <h2>Scheduler</h2>
@@ -491,8 +499,11 @@ function parseLogContent(raw) {
   }).join('\n');
 }
 async function runSync(){
-  const account = sync_acc.value;
-  const mode = sync_mode.value;
+  const account = document.getElementById('sync_acc').value;
+  const mode = 'sync';
+  const out = document.getElementById('sync_out');
+  if(out) out.textContent = 'Đang bắt đầu tiến trình sync...';
+  
   const j = await reqJSON('/api/sync',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({account, mode})});
   if(j.ok) {
     // Tự chuyển sang tab Logs và bắt đầu auto-refresh
@@ -505,6 +516,20 @@ async function runSync(){
     document.getElementById('sync_out').textContent = 'LỖI:\n'+j.msg;
   }
 }
+function updateSyncInfo() {
+  const sel = document.getElementById('sync_acc');
+  const info = document.getElementById('sync_info');
+  if (!sel || !info || !window._syncCfg) return;
+  const accName = sel.value;
+  const acc = (window._syncCfg.accounts || []).find(a => a.name === accName);
+  if (acc) {
+    info.style.display = 'block';
+    info.innerHTML = `<b>Remote Config:</b> <span style="color:#60a5fa">${acc.remote}</span> &nbsp;|&nbsp; <b>Loại Remote:</b> <span style="color:#a78bfa">${acc.providerType || 'N/A'}</span> &nbsp;|&nbsp; <b>Đích Lưu Local:</b> <span style="color:#fde047">${acc.destPath}</span>`;
+  } else {
+    info.style.display = 'none';
+  }
+}
+
 async function checkCloudFiles() {
   const account = sync_acc.value;
   const out = document.getElementById('sync_out');
